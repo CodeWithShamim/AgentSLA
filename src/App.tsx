@@ -1,8 +1,11 @@
 import { useEffect } from 'react'
 import { NavLink, Route, Routes, Link } from 'react-router-dom'
 import { initLenis } from './design/motion'
-import { SIMULATION, CHAIN } from './config/chain'
+import { CHAIN, CONTRACT_ADDRESS } from './config/chain'
+import { useMode } from './lib/reads'
+import { shortAddr } from './lib/format'
 import { writes } from './lib/writes'
+import { WalletBoundary, WalletControls } from './lib/wallet'
 import { Board } from './views/Board'
 import { CaseDetail } from './views/CaseDetail'
 import { CreateTask } from './views/CreateTask'
@@ -11,7 +14,8 @@ import { AgentProfile } from './views/AgentProfile'
 import { Appeal } from './views/Appeal'
 import { Docs } from './views/Docs'
 
-export function App() {
+function Shell() {
+  const mode = useMode()
   useEffect(() => { initLenis() }, [])
 
   return (
@@ -27,11 +31,15 @@ export function App() {
             <NavLink to="/agents" className={({ isActive }) => (isActive ? 'active' : '')}>Agents</NavLink>
             <NavLink to="/docs" className={({ isActive }) => (isActive ? 'active' : '')}>Docs</NavLink>
             <NavLink to="/create" className={({ isActive }) => (isActive ? 'active' : '')}>File a task</NavLink>
-            {SIMULATION && (
-              <span className="sim-badge t-label" title="Contract addresses not yet configured — the protocol lifecycle is simulated locally with identical states and math.">
-                Simulation
-              </span>
-            )}
+            <WalletControls />
+            <span
+              className="sim-badge t-label"
+              title={mode === 'studionet'
+                ? `Live on GenLayer Studio Network — contract ${CONTRACT_ADDRESS}`
+                : 'Contract unreachable — the protocol lifecycle is simulated locally with identical states and math.'}
+            >
+              {mode === 'studionet' ? 'StudioNet' : 'Simulation'}
+            </span>
           </nav>
         </div>
       </header>
@@ -53,16 +61,19 @@ export function App() {
             Verdicts by GenLayer Optimistic Democracy.
           </span>
           <span className="t-data">
-            {CHAIN.name} · chain {CHAIN.id}
-            {SIMULATION && (
+            {mode === 'studionet' && CONTRACT_ADDRESS ? (
               <>
-                {' · '}
+                {CHAIN.name} · chain {CHAIN.id} · <span aria-label={`contract ${CONTRACT_ADDRESS}`}>{shortAddr(CONTRACT_ADDRESS)}</span>
+              </>
+            ) : (
+              <>
+                simulation ·{' '}
                 <button
                   className="seal-download"
                   style={{ font: 'inherit', color: 'inherit', textDecoration: 'underline' }}
                   onClick={() => { writes.resetSimulation(); window.scrollTo(0, 0) }}
                 >
-                  reset simulation
+                  reset
                 </button>
               </>
             )}
@@ -70,5 +81,13 @@ export function App() {
         </footer>
       </main>
     </>
+  )
+}
+
+export function App() {
+  return (
+    <WalletBoundary>
+      <Shell />
+    </WalletBoundary>
   )
 }

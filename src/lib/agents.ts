@@ -15,9 +15,20 @@ export const AGENTS: Record<Address, { name: string; kind: 'buyer' | 'worker' | 
 export const YOU: Address = '0xA11CE00000000000000000000000000000000001'
 export const DEFAULT_WORKER: Address = '0xB0B0000000000000000000000000000000000001'
 
-const TREASURY_ADDR = '0x7EA5000000000000000000000000000000000000'
+const TREASURY_ADDR = '0x7ea5000000000000000000000000000000000000'
 
 export function agentName(addr: Address | string): string {
-  if (addr === TREASURY_ADDR) return 'treasury'
-  return AGENTS[addr as Address]?.name ?? 'unregistered'
+  if (String(addr).toLowerCase() === TREASURY_ADDR) return 'treasury'
+  const known = AGENTS[addr as Address]?.name
+  if (known) return known
+  // Live-chain addresses resolve through the chain backend (lazy to avoid
+  // a module cycle with the sim store).
+  const backend = chainNameResolver?.()
+  return backend?.(String(addr)) ?? `agent-${String(addr).slice(2, 8).toLowerCase()}`
+}
+
+/** Injected by lib/chain.ts at startup — avoids agents ↔ chain import cycle. */
+let chainNameResolver: (() => ((addr: string) => string) | null) | null = null
+export function registerChainNameResolver(fn: () => ((addr: string) => string) | null) {
+  chainNameResolver = fn
 }

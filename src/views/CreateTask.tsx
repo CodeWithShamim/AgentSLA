@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { PARAMS } from '../config/chain'
 import { DocketLine } from '../components/DocketLine'
 import { TxLadder } from '../components/TxLadder'
 import { fmtGEN, parseGEN, pct } from '../lib/format'
 import { useDocketOpen } from '../lib/hooks'
+import { useTasks } from '../lib/reads'
 import { writes } from '../lib/writes'
 
 /** Create-task flow (FR-1). The button states the exact consequence (§8). */
@@ -19,7 +20,11 @@ export function CreateTask() {
   const [days, setDays] = useState(7)
   const [err, setErr] = useState<string | null>(null)
   const [txHash, setTxHash] = useState<string | null>(null)
-  const [createdId, setCreatedId] = useState<number | null>(null)
+  const [filed, setFiled] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const tasks = useTasks()
+  const filedAt = useRef(0)
+  const filedTitle = useRef('')
 
   const escrow = parseGEN(escrowStr)
   const bond = escrow !== null ? pct(escrow, PARAMS.bondPct) : null
@@ -28,7 +33,19 @@ export function CreateTask() {
   const setCriterion = (i: number, v: string) =>
     setCriteria((cs) => cs.map((c, j) => (j === i ? v : c)))
 
-  const submit = () => {
+  // Once the filed task appears on the docket, open its case view.
+  useEffect(() => {
+    if (!filed) return
+    const mine = tasks.find(
+      (t) => t.title === filedTitle.current && t.createdAt >= filedAt.current - 120_000,
+    )
+    if (mine) {
+      const timer = setTimeout(() => nav(`/case/${mine.id}`), 1600)
+      return () => clearTimeout(timer)
+    }
+  }, [filed, tasks, nav])
+
+  const submit = async () => {
     setErr(null)
     if (!title.trim()) return setErr('A deliverable title is required.')
     if (!sla.trim()) return setErr('SLA text is required — it is the contract the court enforces.')
@@ -37,16 +54,24 @@ export function CreateTask() {
     if (escrow === null) return setErr('Escrow must be a valid GEN amount.')
     if (escrow < PARAMS.minEscrow) return setErr(`Escrow below the minimum of ${fmtGEN(PARAMS.minEscrow)}.`)
 
-    const { hash, taskId } = writes.createTask({
-      title: title.trim(),
-      slaText: sla.trim(),
-      criteria: filled,
-      deadline: Date.now() + days * 86_400_000,
-      escrow,
-    })
-    setTxHash(hash)
-    setCreatedId(taskId)
-    setTimeout(() => nav(`/case/${taskId}`), 3200)
+    setBusy(true)
+    try {
+      const { hash } = await writes.createTask({
+        title: title.trim(),
+        slaText: sla.trim(),
+        criteria: filled,
+        deadline: Date.now() + days * 86_400_000,
+        escrow,
+      })
+      filedAt.current = Date.now()
+      filedTitle.current = title.trim()
+      setTxHash(hash)
+      setFiled(true)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message.slice(0, 200) : String(e))
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -130,17 +155,17 @@ export function CreateTask() {
       {err && <p className="error t-small" style={{ marginTop: 'var(--s-4)' }}>{err}</p>}
 
       <div style={{ marginTop: 'var(--s-5)', display: 'grid', gap: 'var(--s-4)' }}>
-        {!createdId && (
+        {!filed && (
           <div>
-            <button className="btn btn-primary" onClick={submit}>
-              Escrow {escrow !== null ? fmtGEN(escrow) : '— GEN'} & open the case
+            <button className="btn btn-primary" onClick={() => void submit()} disabled={busy}>
+              {busy ? 'Signing…' : `Escrow ${escrow !== null ? fmtGEN(escrow) : '— GEN'} & open the case`}
             </button>
           </div>
         )}
         {txHash && <TxLadder hash={txHash} />}
-        {createdId && (
+        {filed && (
           <p className="t-small ink-muted">
-            Case №{String(createdId).padStart(4, '0')} filed — opening the docket entry…
+            Case filed — opening the docket entry once it lands on-chain…
           </p>
         )}
       </div>

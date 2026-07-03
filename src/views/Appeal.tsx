@@ -22,6 +22,8 @@ export function Appeal() {
   const [party, setParty] = useState<'buyer' | 'worker'>('worker')
   const [txHash, setTxHash] = useState<string | null>(null)
   const [filed, setFiled] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
 
   if (!task || !task.verdict || task.status !== 'ADJUDICATED') {
     return (
@@ -42,11 +44,19 @@ export function Appeal() {
   const bond = pct(task.escrow, PARAMS.appealBondPct)
   const appellant: Address = (party === 'buyer' ? task.buyer : task.worker!) as Address
 
-  const file = () => {
-    const hash = writes.fileAppeal(task.id, appellant)
-    setTxHash(hash)
-    setFiled(true)
-    setTimeout(() => nav(`/case/${task.id}`), 3200)
+  const file = async () => {
+    setBusy(true)
+    setErr(null)
+    try {
+      const hash = await writes.fileAppeal(task.id, appellant)
+      setTxHash(hash)
+      setFiled(true)
+      setTimeout(() => nav(`/case/${task.id}`), 3200)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message.slice(0, 200) : String(e))
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -91,10 +101,11 @@ export function Appeal() {
       </p>
 
       <div style={{ marginTop: 'var(--s-5)', display: 'grid', gap: 'var(--s-4)' }}>
+        {err && <p className="error t-small">{err}</p>}
         {!filed && (
           <div style={{ display: 'flex', gap: 'var(--s-3)' }}>
-            <button className="btn btn-primary" onClick={file}>
-              File appeal ({fmtGEN(bond)})
+            <button className="btn btn-primary" onClick={() => void file()} disabled={busy}>
+              {busy ? 'Signing…' : `File appeal (${fmtGEN(bond)})`}
             </button>
             <Link className="btn btn-secondary" to={`/case/${task.id}`}>Return to case</Link>
           </div>

@@ -37,6 +37,10 @@ Thumbs.db
 coverage/
 playwright-report/
 test-results/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
 
 # Vite cache
 .vite/

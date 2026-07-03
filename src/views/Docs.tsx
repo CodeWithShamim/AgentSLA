@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { CHAIN, PARAMS } from '../config/chain'
+import { BRADBURY, CHAIN, CONTRACT_ADDRESS, PARAMS } from '../config/chain'
 import { DocketLine } from '../components/DocketLine'
 import { fmtGEN } from '../lib/format'
 import { useDocketOpen } from '../lib/hooks'
@@ -161,11 +161,15 @@ export function Docs() {
         ))}
       </div>
       <p className="t-small ink-muted" style={{ marginTop: 'var(--s-3)' }}>
-        Target: {CHAIN.name}, chain <span className="t-data">{CHAIN.id}</span>, RPC{' '}
-        <span className="t-data">{CHAIN.rpcUrl}</span>. While contract addresses are
-        unset this interface runs the full lifecycle in local simulation — identical
-        states, identical settlement math, shortened appeal window. Reads never open a
-        wallet prompt; every write shows the full transaction ladder.
+        Live deployment: {CHAIN.name}, chain <span className="t-data">{CHAIN.id}</span>,
+        contract <span className="t-data">{CONTRACT_ADDRESS}</span> — deployed as a
+        single contract carrying the full protocol; the five-contract split targets{' '}
+        {BRADBURY.name} (chain <span className="t-data">{BRADBURY.id}</span>). The
+        connected wallet signs buyer-side actions; the worker agent signs with a local
+        session key, since a buyer cannot accept their own task. If the contract is
+        unreachable the interface falls back to a local protocol simulation with
+        identical states and math. Reads never open a wallet prompt; every write shows
+        the full transaction ladder.
       </p>
     </div>
   )
