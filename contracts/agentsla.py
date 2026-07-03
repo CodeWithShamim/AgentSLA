@@ -18,6 +18,7 @@
 from genlayer import *
 
 import json
+import calendar
 import datetime
 import typing
 from dataclasses import dataclass
@@ -87,8 +88,11 @@ class AgentSLA(gl.Contract):
     # ------------------------------------------------------------------
 
     def _now_ms(self) -> int:
+        # Integer-only epoch math — no floats anywhere near comparisons
+        # that gate money movement (FR-3.5, floating-point guide).
         raw = gl.message_raw['datetime'].replace('Z', '+00:00')
-        return int(datetime.datetime.fromisoformat(raw).timestamp() * 1000)
+        d = datetime.datetime.fromisoformat(raw)
+        return calendar.timegm(d.utctimetuple()) * 1000 + d.microsecond // 1000
 
     def _get(self, task_id: int) -> Task:
         t = self.tasks.get(u256(task_id))
