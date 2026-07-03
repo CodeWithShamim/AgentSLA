@@ -1,0 +1,292 @@
+/* AgentSLA Design System — "The Machine Court"
+   §2–§4 as CSS variables. Single source of truth: no component
+   may hardcode a color, font, duration, or radius. */
+
+:root {
+  /* Surfaces */
+  --paper:        #F1F3F5;
+  --paper-raised: #FFFFFF;
+  --paper-sunken: #E4E8EC;
+
+  /* Ink */
+  --ink:          #141B26;
+  --ink-muted:    #4C5866;
+  --ink-faint:    #8B96A3;
+
+  /* Structure */
+  --rule:         #C9D0D8;
+  --rule-strong:  #141B26;
+
+  /* Interaction — one accent only */
+  --signal:       #2643B4;
+  --signal-ink:   #FFFFFF;
+  --signal-tint:  #E3E8F8;
+
+  /* Verdict semantics — reserved */
+  --verdict-met:      #1E7A5F;
+  --verdict-partial:  #9A6B10;
+  --verdict-notmet:   #9E2B20;
+  --verdict-neutral:  #4C5866;
+
+  /* Tints (behind verdict chips/rows only) */
+  --tint-met:     #E2EFEA;
+  --tint-partial: #F3EBDA;
+  --tint-notmet:  #F2E2E0;
+  --tint-neutral: #E7EAED;
+
+  /* Typography */
+  --font-display: 'Spectral', Georgia, serif;
+  --font-body:    'Public Sans', system-ui, sans-serif;
+  --font-mono:    'IBM Plex Mono', ui-monospace, monospace;
+
+  /* Spacing scale */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 64px;
+
+  /* Structure */
+  --radius: 2px;
+  --shadow-filing: 0 1px 2px rgba(20, 27, 38, 0.06), 0 0 0 1px var(--rule);
+
+  /* Motion */
+  --ease-court: cubic-bezier(0.32, 0, 0.12, 1);
+  --dur-fast: 160ms;
+  --dur-move: 320ms;
+  --dur-ceremony: 1600ms;
+}
+
+/* ---------- Reset & base ---------- */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root { min-height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 26px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4, p { margin: 0; }
+
+a { color: var(--signal); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+button { font-family: inherit; cursor: pointer; }
+
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+::selection { background: var(--signal); color: var(--signal-ink); }
+
+/* ---------- Type scale ---------- */
+
+.t-hero {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 49px;
+  line-height: 56px;
+  letter-spacing: -0.5px;
+}
+.t-h1 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 31px;
+  line-height: 38px;
+}
+.t-h2 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 25px;
+  line-height: 32px;
+}
+.t-h3 {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 20px;
+  line-height: 28px;
+}
+.t-body { font-family: var(--font-body); font-weight: 400; font-size: 16px; line-height: 26px; }
+.t-small { font-family: var(--font-body); font-weight: 400; font-size: 14px; line-height: 22px; }
+.t-label {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+.t-data {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 22px;
+  font-variant-ligatures: none;
+}
+
+.ink-muted { color: var(--ink-muted); }
+.ink-faint { color: var(--ink-faint); }
+
+/* ---------- Layout ---------- */
+
+.shell {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 var(--s-5);
+}
+
+.grid-12 {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: var(--s-5);
+}
+
+.col-7 { grid-column: span 7; }
+.col-5 { grid-column: span 5; }
+
+@media (max-width: 768px) {
+  .col-7, .col-5 { grid-column: span 12; }
+  .t-hero { font-size: 34px; line-height: 42px; }
+}
+
+/* ---------- Filing (card) ---------- */
+
+.filing {
+  background: var(--paper-raised);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-filing);
+}
+
+.well {
+  background: var(--paper-sunken);
+  border-radius: var(--radius);
+  border: 1px solid var(--rule);
+}
+
+/* ---------- Docket line (section divider) ---------- */
+
+.docket-line {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin: var(--s-6) 0 var(--s-4);
+}
+.docket-line .dl-label {
+  color: var(--ink);
+  white-space: nowrap;
+  flex: none;
+}
+.docket-line .dl-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--rule-strong);
+  transform-origin: left center;
+}
+.docket-line .dl-rule-lead {
+  width: var(--s-6);
+  flex: none;
+  height: 1px;
+  background: var(--rule-strong);
+  transform-origin: left center;
+}
+
+/* ---------- Buttons ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  border-radius: var(--radius);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 22px;
+  padding: 9px 18px;
+  border: 1px solid transparent;
+  transition: background-color var(--dur-fast) var(--ease-court),
+              color var(--dur-fast) var(--ease-court),
+              border-color var(--dur-fast) var(--ease-court),
+              opacity var(--dur-fast) var(--ease-court);
+  text-decoration: none;
+}
+.btn:hover { text-decoration: none; }
+
+.btn-primary {
+  background: var(--signal);
+  color: var(--signal-ink);
+  border-color: var(--signal);
+}
+.btn-primary:hover { background: #1E3696; border-color: #1E3696; }
+.btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn-secondary {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--rule-strong);
+}
+.btn-secondary:hover { background: var(--paper-sunken); }
+.btn-secondary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn-destructive {
+  background: transparent;
+  color: var(--verdict-notmet);
+  border-color: var(--verdict-notmet);
+}
+.btn-destructive:hover { background: var(--tint-notmet); }
+.btn-destructive:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ---------- Forms ---------- */
+
+.field { display: flex; flex-direction: column; gap: var(--s-2); }
+
+.field label { color: var(--ink-muted); }
+
+.input, .textarea {
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 26px;
+  color: var(--ink);
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  width: 100%;
+}
+.input.mono, .textarea.mono { font-family: var(--font-mono); font-size: 14px; }
+.input:focus-visible, .textarea:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 0;
+  border-color: var(--signal);
+}
+.textarea { resize: vertical; min-height: 96px; }
+
+.field .hint { color: var(--ink-faint); }
+.field .error { color: var(--verdict-notmet); }
+
+/* ---------- Tables / rows ---------- */
+
+.ruled > * + * { border-top: 1px solid var(--rule); }
+
+/* ---------- Reduced motion ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

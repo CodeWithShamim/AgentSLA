@@ -1,0 +1,311 @@
+/* Component styles — tokens only, per Design System rule §10. */
+
+/* ---------- StatusChip (§5.2) ---------- */
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  white-space: nowrap;
+  position: relative;
+}
+.chip-open      { background: var(--paper-sunken); color: var(--ink-muted); }
+.chip-accepted  { background: var(--signal-tint); color: var(--signal); }
+.chip-delivered { background: var(--signal-tint); color: var(--signal); }
+.chip-adjudicating {
+  background: var(--signal-tint);
+  color: var(--signal);
+  overflow: hidden;
+}
+.chip-adjudicating::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 1px;
+  background: var(--signal);
+  transform: translateX(-100%);
+  animation: chip-sweep 1.2s var(--ease-court) infinite;
+}
+@keyframes chip-sweep {
+  0% { transform: translateX(-100%); }
+  60% { transform: translateX(100%); }
+  100% { transform: translateX(100%); }
+}
+.chip-met      { background: var(--tint-met); color: var(--verdict-met); }
+.chip-partial  { background: var(--tint-partial); color: var(--verdict-partial); }
+.chip-notmet   { background: var(--tint-notmet); color: var(--verdict-notmet); }
+.chip-soft     { background: var(--tint-neutral); color: var(--verdict-neutral); }
+.chip-appealed { background: transparent; color: var(--verdict-partial); border-color: var(--verdict-partial); }
+.chip-final    { background: var(--ink); color: var(--paper-raised); }
+.chip-canceled { background: var(--paper-sunken); color: var(--ink-faint); }
+.chip-expired  { background: var(--tint-notmet); color: var(--verdict-notmet); }
+
+/* ---------- Task card / docket entry (§5.1) ---------- */
+
+.task-card {
+  display: block;
+  padding: var(--s-4) var(--s-5);
+  color: inherit;
+  transition: background-color var(--dur-fast) var(--ease-court);
+}
+.task-card:hover { background: var(--paper-sunken); text-decoration: none; }
+.task-card:hover .tc-title { color: var(--signal); }
+.tc-top {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  margin-bottom: var(--s-1);
+}
+.tc-top .tc-id { color: var(--ink-faint); }
+.tc-top .tc-amount { margin-left: auto; color: var(--ink); font-weight: 500; }
+.tc-title { transition: color var(--dur-fast) var(--ease-court); }
+.tc-meta { color: var(--ink-muted); margin-top: var(--s-1); display: flex; gap: var(--s-2); flex-wrap: wrap; }
+.tc-meta .sep { color: var(--ink-faint); }
+
+/* ---------- Criterion row (§5.3) ---------- */
+
+.criterion-row { padding: var(--s-3) 0; }
+.criterion-main {
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
+  gap: var(--s-3);
+  align-items: baseline;
+}
+.criterion-index { color: var(--ink-faint); }
+.criterion-verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+.criterion-dot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: none;
+}
+.dot-met    { background: var(--verdict-met); }
+.dot-notmet { background: transparent; box-shadow: inset 0 0 0 1.5px var(--verdict-notmet); }
+.dot-pending { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink-faint); }
+.criterion-reason-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--ink-faint);
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.criterion-reason-toggle:hover { color: var(--signal); }
+.criterion-reason {
+  grid-column: 2 / 4;
+  margin-top: var(--s-2);
+  padding-left: var(--s-3);
+  border-left: 2px solid var(--rule);
+  color: var(--ink-muted);
+  font-style: italic;
+}
+.criterion-reason .reason-note { font-style: normal; color: var(--ink-faint); }
+
+/* ---------- Tx state ladder (§5.4) ---------- */
+
+.tx-ladder {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  padding: var(--s-3) var(--s-4);
+}
+.tx-step { display: inline-flex; align-items: center; gap: var(--s-2); position: relative; }
+.tx-step .step-label { color: var(--ink-faint); position: relative; padding-bottom: 2px; }
+.tx-step.done .step-label { color: var(--ink); }
+.tx-step.active .step-label { color: var(--signal); }
+.tx-step.active .step-label::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 1px;
+  background: var(--signal);
+  animation: step-pulse 1.2s var(--ease-court) infinite;
+}
+@keyframes step-pulse {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+.tx-step.failed .step-label { color: var(--verdict-notmet); }
+.tx-step.soft .step-label { color: var(--verdict-neutral); }
+.tx-arrow { color: var(--ink-faint); }
+.tx-hash { margin-left: auto; color: var(--ink-faint); }
+
+@media (max-width: 768px) {
+  .tx-ladder { flex-direction: column; align-items: flex-start; }
+  .tx-hash { margin-left: 0; }
+}
+
+/* ---------- Evidence panel (§5.5) ---------- */
+
+.evidence-panel { padding: var(--s-4); }
+.evidence-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin-bottom: var(--s-3);
+  color: var(--ink-muted);
+}
+.evidence-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink);
+  max-height: 320px;
+  overflow-y: auto;
+}
+.evidence-note { margin-top: var(--s-3); color: var(--ink-faint); }
+
+/* ---------- Error / procedural findings ---------- */
+
+.finding {
+  display: flex;
+  gap: var(--s-3);
+  align-items: baseline;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper-raised);
+}
+.finding .tag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: var(--radius);
+  background: var(--tint-neutral);
+  color: var(--verdict-neutral);
+}
+.finding.notmet .tag { background: var(--tint-notmet); color: var(--verdict-notmet); }
+
+/* ---------- Settlement lines ---------- */
+
+.settlement-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  padding: var(--s-2) 0;
+}
+.settlement-line .sl-label { color: var(--ink-muted); }
+.settlement-line .sl-amount { margin-left: auto; white-space: nowrap; }
+.sl-release .sl-amount { color: var(--verdict-met); }
+.sl-refund .sl-amount { color: var(--ink); }
+.sl-bond-return .sl-amount { color: var(--ink); }
+.sl-slash .sl-amount { color: var(--verdict-notmet); }
+.sl-appeal-bond .sl-amount { color: var(--verdict-partial); }
+.sl-neutral .sl-amount { color: var(--verdict-neutral); }
+
+/* ---------- Header / nav ---------- */
+
+.site-header {
+  border-bottom: 1px solid var(--rule-strong);
+  background: var(--paper);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.site-header-inner {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  height: 64px;
+}
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  color: var(--ink);
+}
+.brand:hover { text-decoration: none; }
+.brand .brand-name { font-family: var(--font-display); font-weight: 600; font-size: 20px; }
+.brand .brand-court { color: var(--ink-faint); }
+.site-nav { display: flex; gap: var(--s-4); margin-left: auto; align-items: center; }
+.site-nav a { color: var(--ink-muted); padding-bottom: 2px; }
+.site-nav a:hover { color: var(--ink); text-decoration: none; }
+.site-nav a.active { color: var(--ink); box-shadow: inset 0 -1px 0 var(--rule-strong); }
+.sim-badge {
+  color: var(--ink-faint);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 2px 8px;
+}
+
+.site-footer {
+  border-top: 1px solid var(--rule);
+  margin-top: var(--s-8);
+  padding: var(--s-5) 0 var(--s-7);
+  color: var(--ink-faint);
+  display: flex;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+/* ---------- Verdict seal ---------- */
+
+.seal-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-5) 0;
+}
+.seal-canvas { width: 320px; height: 320px; position: relative; }
+@media (max-width: 768px) { .seal-canvas { width: 200px; height: 200px; } }
+.seal-svg-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.seal-download {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--ink-faint);
+  font: inherit;
+}
+.seal-download:hover { color: var(--signal); }
+
+/* ---------- Agent profile ---------- */
+
+.score-figure {
+  font-family: var(--font-mono);
+  font-size: 49px;
+  line-height: 56px;
+  font-weight: 500;
+}
+
+.history-row {
+  display: grid;
+  grid-template-columns: 80px 1fr auto auto;
+  gap: var(--s-3);
+  align-items: baseline;
+  padding: var(--s-2) 0;
+}
+.history-row .delta-pos { color: var(--verdict-met); }
+.history-row .delta-neg { color: var(--verdict-notmet); }
+.history-row .delta-zero { color: var(--ink-faint); }
+
+@media (max-width: 768px) {
+  .history-row { grid-template-columns: 64px 1fr auto; }
+  .history-row > :nth-child(4) { display: none; }
+}
+
+/* ---------- Hero (board) ---------- */
+
+.board-hero { padding: var(--s-7) 0 var(--s-2); }
+.board-hero .hero-sub { max-width: 620px; margin-top: var(--s-3); color: var(--ink-muted); }
+
+/* ---------- Countdown arc note ---------- */
+
+.window-note { display: flex; align-items: baseline; gap: var(--s-2); color: var(--ink-muted); }
