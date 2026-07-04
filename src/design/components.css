@@ -445,11 +445,38 @@
 
 .act-convene { padding: var(--s-8) 0; }
 .act-convene-inner {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: var(--s-5);
   padding: var(--s-7) 0;
+}
+
+/* Parallax line field: layered archival rules behind chamber content.
+   Layers overshoot the box (inset) so scroll travel never bares an edge;
+   transform-only, GPU-hinted. Colour rides --rule (chamber-remapped). */
+.parallax-lines {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.parallax-lines .pl-layer {
+  position: absolute;
+  inset: -18% 0;
+  will-change: transform;
+}
+.parallax-lines svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.parallax-lines line {
+  stroke: var(--rule);
+  vector-effect: non-scaling-stroke;
 }
 
 /* Chamber hard limit (v2 §4): nothing animates on the landing except

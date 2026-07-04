@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CanvasBoundary } from '../components/CanvasBoundary'
 import { DocketLine } from '../components/DocketLine'
+import { ParallaxLines } from '../components/ParallaxLines'
 import { StatusChip } from '../components/StatusChip'
 import { VerdictSeal } from '../components/VerdictSeal'
 import { DUR_MOVE, prefersReducedMotion } from '../design/motion'
@@ -224,6 +225,7 @@ export function Landing() {
 
       {/* ── ACT V — CONVENE ── */}
       <section className="chamber chamber-vignette act-convene">
+        <ParallaxLines />
         <div className="shell act-convene-inner">
           <p className="t-h2">The court is in session on {CHAIN.name}.</p>
           <Link className="btn btn-primary" to="/board">Open the docket</Link>
