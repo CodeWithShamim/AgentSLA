@@ -17,13 +17,17 @@ export interface SealProps {
   final: boolean
   /** 0..1 fraction of appeal window remaining; null once final */
   windowFrac: number | null
+  /** Chamber finality (v2 §2): when set and final, the seal ends in
+   *  metal — main rings in brass, ring text in brass-dim. */
+  brass?: string
+  brassDim?: string
   size?: number | string
 }
 
 const WORD: Record<VerdictKind, string> = { MET: 'MET', PARTIAL: 'PARTIAL', NOT_MET: 'NOT MET' }
 
 export const SealSVG = forwardRef<SVGSVGElement, SealProps>(function SealSVG(
-  { verdict, criteria, caseNo, hue, ink, paper, faint, final, windowFrac, size = '100%' },
+  { verdict, criteria, caseNo, hue, ink, paper, faint, final, windowFrac, brass, brassDim, size = '100%' },
   ref,
 ) {
   const C = 160
@@ -47,8 +51,11 @@ export const SealSVG = forwardRef<SVGSVGElement, SealProps>(function SealSVG(
   const arc = windowFrac !== null && windowFrac > 0 ? describeArc(C, C, 156, -90, -90 + 360 * windowFrac) : null
 
   // At finality the seal darkens one step — hue mixed toward ink (§7),
-  // never losing the verdict color entirely.
-  const mainStroke = final ? mixHex(hue, ink, 0.35) : hue
+  // never losing the verdict color entirely. On chamber surfaces
+  // finality is brass instead: the ceremony ends in metal (v2 §2).
+  const mainStroke = final ? (brass ?? mixHex(hue, ink, 0.35)) : hue
+  const ringTextFill = final && brass ? (brassDim ?? mainStroke) : mainStroke
+  const captionFill = final ? (brass ?? ink) : faint
 
   return (
     <svg
@@ -74,7 +81,7 @@ export const SealSVG = forwardRef<SVGSVGElement, SealProps>(function SealSVG(
 
       {/* ring text */}
       <text
-        fill={mainStroke}
+        fill={ringTextFill}
         style={{
           fontFamily: "'IBM Plex Mono', ui-monospace, monospace",
           fontSize: '13.5px',
@@ -118,7 +125,7 @@ export const SealSVG = forwardRef<SVGSVGElement, SealProps>(function SealSVG(
         x={C}
         y={C + 34}
         textAnchor="middle"
-        fill={final ? ink : faint}
+        fill={captionFill}
         style={{ fontFamily: "'IBM Plex Mono', ui-monospace, monospace", fontSize: '11px', letterSpacing: '2px' }}
       >
         {final ? 'FINAL' : 'APPEAL WINDOW OPEN'}
