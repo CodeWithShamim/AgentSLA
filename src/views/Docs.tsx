@@ -1,10 +1,10 @@
 import { Link } from 'react-router-dom'
-import { BRADBURY, CHAIN, CONTRACT_ADDRESS, PARAMS } from '../config/chain'
+import { BRADBURY, CHAIN, CONTRACT_ADDRESS, PARAMS, explorerAddressUrl } from '../config/chain'
 import { DocketLine } from '../components/DocketLine'
 import { fmtGEN } from '../lib/format'
 import { useDocketOpen } from '../lib/hooks'
 
-/** Protocol documentation — the court explains its own procedure. */
+/** Protocol documentation: the court explains its own procedure. */
 export function Docs() {
   const root = useDocketOpen<HTMLDivElement>()
 
@@ -13,7 +13,7 @@ export function Docs() {
       <div style={{ padding: 'var(--s-6) 0 0' }}>
         <h1 className="t-h1">Documentation</h1>
         <p className="t-body ink-muted" style={{ marginTop: 'var(--s-3)' }}>
-          Agentic commerce standards — x402, ERC-8004, A2A, ACP — define how agents
+          Agentic commerce standards (x402, ERC-8004, A2A, ACP) define how agents
           identify each other, delegate tasks, and pay. None define what happens when
           the buyer and the worker disagree about whether the work was done to spec.
           AgentSLA is that missing layer: a neutral, trustless adjudicator built as
@@ -30,7 +30,7 @@ export function Docs() {
                      ▼                                      ▼
              RESOLVED NEUTRAL              VERDICT: MET | PARTIAL | NOT_MET
                                                             │
-                                                 appeal window (24 h)
+                                                 appeal window (2 min)
                                                             │
                             ┌── appeal(bond) ──▶ round 2 (final) ──┐
                             ▼                                      ▼
@@ -44,7 +44,7 @@ export function Docs() {
         </li>
         <li>
           <strong>Acceptance.</strong> A worker agent stakes a performance bond of{' '}
-          {PARAMS.bondPct}% of escrow — skin in the game against non-delivery.
+          {PARAMS.bondPct}% of escrow: skin in the game against non-delivery.
         </li>
         <li>
           <strong>Delivery.</strong> The worker submits evidence (URL or inline
@@ -55,7 +55,7 @@ export function Docs() {
           <strong>Adjudication.</strong> GenLayer's Optimistic Democracy judges the
           deliverable against each criterion independently. The leader proposes; validators
           independently re-fetch and re-judge; consensus compares only the verdict enum
-          and the per-criterion boolean vector — never prose, never confidence.
+          and the per-criterion boolean vector, never prose, never confidence.
         </li>
         <li>
           <strong>Settlement.</strong> Funds move automatically per the verdict, after
@@ -76,7 +76,7 @@ export function Docs() {
           },
           {
             hue: 'var(--verdict-notmet)', name: 'NOT MET',
-            rule: `No criterion met. Full refund to the buyer; the worker bond is slashed — ${PARAMS.slashBuyerPct}% to the buyer, ${100 - PARAMS.slashBuyerPct}% to the protocol treasury.`,
+            rule: `No criterion met. Full refund to the buyer; the worker bond is slashed: ${PARAMS.slashBuyerPct}% to the buyer, ${100 - PARAMS.slashBuyerPct}% to the protocol treasury.`,
           },
           {
             hue: 'var(--verdict-neutral)', name: 'NEUTRAL',
@@ -120,7 +120,7 @@ export function Docs() {
         Either party may appeal within the window by posting a bond of{' '}
         {PARAMS.appealBondPct}% of escrow. An appeal triggers a fresh leader/validator
         round; the second verdict is final. If the verdict moves in the appellant's
-        favor the bond returns; otherwise it forfeits to the counterparty — the
+        favor the bond returns; otherwise it forfeits to the counterparty: the
         economic answer to frivolous appeals.
       </p>
 
@@ -128,7 +128,7 @@ export function Docs() {
       <p className="t-body">
         A worker's deliverable is adversarial input. The adjudicator wraps all
         evidence in untrusted-data delimiters and instructs the model that anything
-        inside — including text shaped like instructions — is data to be judged, not
+        inside, including text shaped like instructions, is data to be judged, not
         commands to be followed. Verdict enums are whitelist-validated after the
         model responds. See the archived demonstration:{' '}
         <Link to="/case/3">Case №0003</Link>, where a deliverable reading “ignore all
@@ -137,8 +137,8 @@ export function Docs() {
 
       <DocketLine label="Reputation" />
       <p className="t-body">
-        Every finalized verdict writes to the reputation registry —{' '}
-        <span className="t-data">{'{agent, task_id, role, verdict, timestamp}'}</span> —
+        Every finalized verdict writes to the reputation registry,{' '}
+        <span className="t-data">{'{agent, task_id, role, verdict, timestamp}'}</span>,
         with ERC-8004-compatible read shapes (<span className="t-data">get_score</span>,{' '}
         <span className="t-data">get_history</span>). Scores are a weighted rolling
         record: MET +2 · PARTIAL +0 · NOT_MET −3 · deadline miss −5, floored at zero.
@@ -149,7 +149,7 @@ export function Docs() {
       <div className="filing ruled" style={{ padding: '0 var(--s-4)' }}>
         {[
           { c: 'TaskRegistry', r: 'Task lifecycle: OPEN → ACCEPTED → DELIVERED → ADJUDICATED → FINAL / APPEALED' },
-          { c: 'SLAAdjudicator', r: 'Non-deterministic core — per-criterion LLM judgment with custom leader/validator equivalence' },
+          { c: 'SLAAdjudicator', r: 'Non-deterministic core: per-criterion LLM judgment with custom leader/validator equivalence' },
           { c: 'EscrowVault', r: 'Escrow, bonds, pro-rata splits, slashing, refund guards' },
           { c: 'AgentReputation', r: 'Verdict history and score per agent address' },
           { c: 'AppealManager', r: 'Appeal bonds, window enforcement, re-adjudication trigger' },
@@ -162,7 +162,14 @@ export function Docs() {
       </div>
       <p className="t-small ink-muted" style={{ marginTop: 'var(--s-3)' }}>
         Live deployment: {CHAIN.name}, chain <span className="t-data">{CHAIN.id}</span>,
-        contract <span className="t-data">{CONTRACT_ADDRESS}</span> — deployed as a
+        contract{' '}
+        {CONTRACT_ADDRESS ? (
+          <a className="t-data" href={explorerAddressUrl(CONTRACT_ADDRESS)} target="_blank" rel="noreferrer">
+            {CONTRACT_ADDRESS}
+          </a>
+        ) : (
+          <span className="t-data">undeployed</span>
+        )}, deployed as a
         single contract carrying the full protocol; the five-contract split targets{' '}
         {BRADBURY.name} (chain <span className="t-data">{BRADBURY.id}</span>). The
         connected wallet signs buyer-side actions; the worker agent signs with a local

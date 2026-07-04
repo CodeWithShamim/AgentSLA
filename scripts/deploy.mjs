@@ -13,6 +13,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createClient, createAccount, generatePrivateKey } from 'genlayer-js'
 import { studionet } from 'genlayer-js/chains'
+import { syncReadme } from './sync-readme.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -87,3 +88,6 @@ fs.writeFileSync(outPath, JSON.stringify({
   minEscrow: MIN_ESCROW.toString(),
 }, null, 2) + '\n')
 console.log('wrote', path.relative(root, outPath))
+
+// Keep the README's live-deployment line in sync with the address we just wrote.
+syncReadme()
