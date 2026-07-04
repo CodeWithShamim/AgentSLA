@@ -177,9 +177,9 @@ export function CaseDetail() {
 
   if (!task) {
     return (
-      <div>
-        <DocketLine label="Case not found" />
-        <p className="t-body ink-muted">No such case on the docket. <Link to="/">Return to the docket.</Link></p>
+      <div className="chamber chamber-vignette chamber-moment">
+        <p className="t-body">No such case on the docket.</p>
+        <Link className="btn btn-secondary" to="/board">Return to the docket</Link>
       </div>
     )
   }
@@ -344,6 +344,15 @@ export function CaseDetail() {
             </div>
           )}
 
+          {task.status === 'RESOLVED_NEUTRAL' && (
+            <div className="chamber chamber-vignette chamber-moment">
+              <p className="t-body">
+                Resolved neutrally. Escrow returned to the buyer, bond to the
+                worker — no fault recorded, no reputation written.
+              </p>
+            </div>
+          )}
+
           {task.status === 'EXPIRED' && (
             <div style={{ display: 'grid', gap: 'var(--s-3)' }}>
               <div className="finding notmet">
@@ -361,25 +370,29 @@ export function CaseDetail() {
 
           {v && (task.status === 'ADJUDICATED' || task.status === 'FINAL') && (
             <>
-              <VerdictSeal task={task} ceremony={ceremony} go={sealGo} />
-              {appealOpen && (
-                <div style={{ display: 'grid', gap: 'var(--s-3)' }}>
-                  <div className="window-note">
-                    <CountdownArc msLeft={msLeft} totalMs={PARAMS.appealWindowMs} />
-                    <span className="t-small">Appeal window closes in</span>
-                    <span className="t-data">{fmtCountdown(msLeft)}</span>
+              {/* Seal on the filing surface: ink on paper, no dark chamber
+                  backdrop. The settlement write stays on the surface below. */}
+              <div className="chamber-inset">
+                <VerdictSeal task={task} ceremony={ceremony} go={sealGo} />
+                {appealOpen && (
+                  <div style={{ display: 'grid', gap: 'var(--s-3)' }}>
+                    <div className="window-note">
+                      <CountdownArc msLeft={msLeft} totalMs={PARAMS.appealWindowMs} />
+                      <span className="t-small">Appeal window closes in</span>
+                      <span className="t-data">{fmtCountdown(msLeft)}</span>
+                    </div>
+                    <Link className="btn btn-secondary" to={`/case/${task.id}/appeal`}>
+                      File appeal ({fmtGEN(pct(task.escrow, PARAMS.appealBondPct))})
+                    </Link>
+                    <p className="t-small ink-faint">
+                      Settlement executes when the window closes. Either party may appeal
+                      by posting a bond of {PARAMS.appealBondPct}% of escrow.
+                    </p>
                   </div>
-                  <Link className="btn btn-secondary" to={`/case/${task.id}/appeal`}>
-                    File appeal ({fmtGEN(pct(task.escrow, PARAMS.appealBondPct))})
-                  </Link>
-                  <p className="t-small ink-faint">
-                    Settlement executes when the window closes. Either party may appeal
-                    by posting a bond of {PARAMS.appealBondPct}% of escrow.
-                  </p>
-                </div>
-              )}
+                )}
+              </div>
               {windowClosed && (
-                <div style={{ display: 'grid', gap: 'var(--s-3)' }}>
+                <div style={{ display: 'grid', gap: 'var(--s-3)', marginTop: 'var(--s-4)' }}>
                   <p className="t-small ink-muted">
                     The appeal window has closed. Execute settlement to move funds
                     and record reputation.

@@ -82,17 +82,99 @@
   --dur-fast: 160ms;
   --dur-move: 320ms;
   --dur-ceremony: 1600ms;
+
+  /* ── Chamber surfaces (v2) — where judgment happens ── */
+  --chamber:        #0E141D;
+  --chamber-raised: #16202C;
+  --chamber-sunken: #0B1017;
+  --chamber-line:   #2A3644;
+
+  /* Ink on chamber */
+  --chamber-text:   #E8ECF1;
+  --chamber-muted:  #97A3B2;
+  --chamber-faint:  #75828F;  /* lifted from spec #5C6874 — 4.70:1, AA at small sizes */
+
+  /* Signal on chamber (AA on --chamber) */
+  --signal-bright:  #7E93E8;
+
+  /* Verdict hues on chamber (luminance-lifted, AA on --chamber) */
+  --verdict-met-b:     #43A88B;
+  --verdict-partial-b: #CE9A44;
+  --verdict-notmet-b:  #D4655A;
+
+  /* Finality accent — chamber-only, finality only. Never buttons,
+     never links, never decoration. */
+  --brass:          #A98C4A;
+  --brass-dim:      #937E4A;  /* lifted from spec #6E5E38 — 4.68:1, AA for seal ring text */
+}
+
+/* ---------- Chamber scope ----------
+   The chamber never hosts forms or primary work — reading and ceremony
+   only. Inside it the v1 role variables are remapped, so every existing
+   component restyles by cascade; the chroma budget is unchanged. */
+
+.chamber,
+.act-fade[data-phase='dark'] {
+  --paper:        var(--chamber);
+  --paper-raised: var(--chamber-raised);
+  --paper-sunken: var(--chamber-sunken);
+  --ink:          var(--chamber-text);
+  --ink-muted:    var(--chamber-muted);
+  --ink-faint:    var(--chamber-faint);
+  --rule:         var(--chamber-line);
+  --rule-strong:  var(--chamber-muted);
+  --signal:       var(--signal-bright);
+  --signal-ink:   var(--chamber);
+  --signal-tint:  rgba(126, 147, 232, 0.16);
+  --verdict-met:      var(--verdict-met-b);
+  --verdict-partial:  var(--verdict-partial-b);
+  --verdict-notmet:   var(--verdict-notmet-b);
+  --verdict-neutral:  var(--chamber-muted);
+  --tint-met:     rgba(67, 168, 139, 0.16);
+  --tint-partial: rgba(206, 154, 68, 0.16);
+  --tint-notmet:  rgba(212, 101, 90, 0.16);
+  --tint-neutral: rgba(151, 163, 178, 0.12);
+  --shadow-filing: 0 1px 3px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--chamber-line);
+  background: var(--chamber);
+  color: var(--chamber-text);
+}
+
+/* Brass finality on chamber: final chips and closed arcs end in metal. */
+.chamber .chip-final { background: transparent; color: var(--brass); border-color: var(--brass-dim); }
+.chamber .btn-primary:hover { background: #94A6EC; border-color: #94A6EC; }
+
+/* Vignette — radial darkening at chamber edges, static. */
+.chamber-vignette { position: relative; }
+.chamber-vignette::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.06) 100%);
 }
 
 /* ---------- Reset & base ---------- */
 
 *, *::before, *::after { box-sizing: border-box; }
 
-html, body, #root { min-height: 100%; }
+html, body { min-height: 100%; }
+
+/* Sticky footer: the app column fills the viewport so #main can grow
+   and push .site-footer to the bottom on short or still-loading pages. */
+#root {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
 
 body {
   margin: 0;
-  background: var(--paper);
+  background-color: var(--paper);
+  /* Paper grain (v2 §4): one turbulence tile at 2.5% — felt, not seen.
+     Chamber sections paint solid surfaces over it; grain belongs to
+     the filing office. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)' opacity='0.025'/%3E%3C/svg%3E");
   color: var(--ink);
   font-family: var(--font-body);
   font-size: 16px;

@@ -7,7 +7,7 @@ import { useTasks } from '../lib/reads'
 import { caseNo, fmtDate, fmtGEN } from '../lib/format'
 import type { Task } from '../lib/types'
 
-function TaskCard({ task }: { task: Task }) {
+export function TaskCard({ task }: { task: Task }) {
   return (
     <Link to={`/case/${task.id}`} className="task-card">
       <div className="tc-top">
@@ -70,12 +70,10 @@ export function Board() {
       </div>
 
       {tasks.length === 0 ? (
-        <>
-          <DocketLine label="Docket" />
-          <p className="t-body ink-muted">
-            No open cases. <Link to="/create">Create a task</Link> to convene the court.
-          </p>
-        </>
+        <div className="chamber chamber-vignette chamber-moment">
+          <p className="t-body">The docket is empty. The court waits.</p>
+          <Link className="btn btn-secondary" to="/create">File a task</Link>
+        </div>
       ) : (
         <>
           <Section label="Open cases" tasks={open} />

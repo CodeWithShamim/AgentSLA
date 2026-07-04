@@ -1,12 +1,13 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { NavLink, Route, Routes, Link, useLocation } from 'react-router-dom'
-import { destroyLenis, initLenis, playRouteFade } from './design/motion'
+import { destroyLenis, getLenis, initLenis, playRouteFade } from './design/motion'
 import { CHAIN, CONTRACT_ADDRESS, explorerAddressUrl } from './config/chain'
 import { useMode } from './lib/reads'
 import { shortAddr } from './lib/format'
 import { writes } from './lib/writes'
 import { WalletBoundary, WalletControls } from './lib/wallet'
 import { Board } from './views/Board'
+import { Landing } from './views/Landing'
 import { CaseDetail } from './views/CaseDetail'
 import { CreateTask } from './views/CreateTask'
 import { Agents } from './views/Agents'
@@ -20,9 +21,12 @@ function RouteFade({ children }: { children: React.ReactNode }) {
   const loc = useLocation()
   const ref = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
+    const lenis = getLenis()
+    if (lenis) lenis.scrollTo(0, { immediate: true })
+    else window.scrollTo(0, 0)
     if (ref.current) playRouteFade(ref.current)
   }, [loc.pathname])
-  return <div ref={ref}>{children}</div>
+  return <div ref={ref} className="route-fill">{children}</div>
 }
 
 function Shell() {
@@ -41,7 +45,7 @@ function Shell() {
             <span className="brand-court t-small">· The Machine Court</span>
           </Link>
           <nav className="site-nav t-small" aria-label="Primary">
-            <NavLink to="/" end className={({ isActive }) => (isActive ? 'active' : '')}>Docket</NavLink>
+            <NavLink to="/board" className={({ isActive }) => (isActive ? 'active' : '')}>Docket</NavLink>
             <NavLink to="/agents" className={({ isActive }) => (isActive ? 'active' : '')}>Agents</NavLink>
             <NavLink to="/create" className={({ isActive }) => (isActive ? 'active' : '')}>File a task</NavLink>
             <NavLink to="/docs" className={({ isActive }) => (isActive ? 'active' : '')}>Docs</NavLink>
@@ -57,12 +61,12 @@ function Shell() {
             )}
             <WalletControls />
             <span
-              className="sim-badge t-label"
+              className="sim-badge t-data"
               title={mode === 'studionet'
-                ? `Live on GenLayer Studio Network — contract ${CONTRACT_ADDRESS}`
+                ? `Live on GenLayer Studio Network (chain ${CHAIN.id}) — contract ${CONTRACT_ADDRESS}`
                 : 'Contract unreachable — the protocol lifecycle is simulated locally with identical states and math.'}
             >
-              {mode === 'studionet' ? 'StudioNet' : 'Simulation'}
+              {mode === 'studionet' ? `STUDIO · ${CHAIN.id}` : 'SIMULATION'}
             </span>
           </nav>
         </div>
@@ -71,7 +75,8 @@ function Shell() {
       <main className="shell" id="main">
         <RouteFade>
           <Routes>
-            <Route path="/" element={<Board />} />
+            <Route path="/" element={<Landing />} />
+            <Route path="/board" element={<Board />} />
             <Route path="/create" element={<CreateTask />} />
             <Route path="/case/:id" element={<CaseDetail />} />
             <Route path="/case/:id/appeal" element={<Appeal />} />
@@ -81,7 +86,7 @@ function Shell() {
           </Routes>
         </RouteFade>
 
-        <footer className="site-footer t-small">
+        <footer className="site-footer chamber t-small">
           <span>
             AgentSLA — on-chain SLA adjudication for agent-to-agent commerce.
             Verdicts by GenLayer Optimistic Democracy.

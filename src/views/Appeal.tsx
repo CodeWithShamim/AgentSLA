@@ -28,14 +28,13 @@ export function Appeal() {
 
   if (!task || !task.verdict || task.status !== 'ADJUDICATED') {
     return (
-      <div>
-        <DocketLine label="Appeal unavailable" />
-        <p className="t-body ink-muted">
-          {task
-            ? 'This case has no open appeal window.'
-            : 'No such case on the docket.'}{' '}
-          <Link to={task ? `/case/${task.id}` : '/'}>Return to the {task ? 'case' : 'docket'}.</Link>
+      <div className="chamber chamber-vignette chamber-moment">
+        <p className="t-body">
+          {task ? 'This case has no open appeal window.' : 'No such case on the docket.'}
         </p>
+        <Link className="btn btn-secondary" to={task ? `/case/${task.id}` : '/board'}>
+          Return to the {task ? 'case' : 'docket'}
+        </Link>
       </div>
     )
   }
