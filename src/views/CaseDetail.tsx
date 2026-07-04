@@ -13,7 +13,7 @@ import { countUp, revealRows } from '../design/motion'
 import { agentName } from '../lib/agents'
 import { caseNo, fmtCountdown, fmtDateTime, fmtGEN, pct, shortAddr } from '../lib/format'
 import { useDocketOpen } from '../lib/hooks'
-import { useMode, useNow, useTask } from '../lib/reads'
+import { useMode, useNow, useTask, useTx } from '../lib/reads'
 import { writes } from '../lib/writes'
 import type { Task } from '../lib/types'
 
@@ -35,11 +35,15 @@ function findingText(e: unknown): string {
   return m ? m[0] : raw.slice(0, 200)
 }
 
-function DeliverForm({ task, onTx, live }: { task: Task; onTx: (h: string) => void; live: boolean }) {
+function DeliverForm({ task, onTx, live, pending }: { task: Task; onTx: (h: string) => void; live: boolean; pending: boolean }) {
   const [url, setUrl] = useState('')
   const [inline, setInline] = useState('')
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Signing (busy) covers the wallet round-trip; pending covers the on-chain
+  // consensus window after the hash returns. Lock the button across both so a
+  // delivery can't be submitted twice while adjudication is still running.
+  const locked = busy || pending
 
   const submit = async () => {
     if (!url.trim() && !inline.trim()) {
@@ -77,8 +81,8 @@ function DeliverForm({ task, onTx, live }: { task: Task; onTx: (h: string) => vo
       </div>
       {err && <p className="error t-small">{err}</p>}
       <div>
-        <button className="btn btn-primary" onClick={() => void submit()} disabled={busy}>
-          {busy ? 'Signing…' : 'Submit delivery for adjudication'}
+        <button className="btn btn-primary" onClick={() => void submit()} disabled={locked}>
+          {busy ? 'Signing…' : pending ? 'Awaiting consensus…' : 'Submit delivery for adjudication'}
         </button>
       </div>
       {live ? (
@@ -111,6 +115,13 @@ export function CaseDetail() {
   const [txHash, setTxHash] = useState<string | null>(null)
   const [actErr, setActErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // The last write is still reaching consensus while its tx step is
+  // submitted/pending. Keep action buttons locked through that window (not just
+  // while signing) so a click can't fire a duplicate before the task status
+  // flips — accept, deliver, settle, resolve, reclaim all take a beat on-chain.
+  const txRes = useTx(txHash)
+  const txPending = !!txRes && (txRes.step === 'submitted' || txRes.step === 'pending')
+  const locked = busy || txPending
   const root = useDocketOpen<HTMLDivElement>([id])
   const criteriaRoot = useRef<HTMLDivElement>(null)
   const settlementRoot = useRef<HTMLDivElement>(null)
@@ -297,10 +308,10 @@ export function CaseDetail() {
 
           {task.status === 'OPEN' && (
             <div style={{ display: 'grid', gap: 'var(--s-3)' }}>
-              <button className="btn btn-primary" disabled={busy} onClick={() => act(() => writes.acceptTask(task.id))}>
-                Stake bond & accept ({fmtGEN(task.bond)})
+              <button className="btn btn-primary" disabled={locked} onClick={() => act(() => writes.acceptTask(task.id))}>
+                {txPending && !busy ? 'Awaiting consensus…' : `Stake bond & accept (${fmtGEN(task.bond)})`}
               </button>
-              <button className="btn btn-destructive" disabled={busy} onClick={() => act(() => writes.cancelTask(task.id))}>
+              <button className="btn btn-destructive" disabled={locked} onClick={() => act(() => writes.cancelTask(task.id))}>
                 Cancel & reclaim escrow ({fmtGEN(task.escrow)})
               </button>
               <p className="t-small ink-faint">
@@ -311,7 +322,7 @@ export function CaseDetail() {
             </div>
           )}
 
-          {task.status === 'ACCEPTED' && <DeliverForm task={task} onTx={setTxHash} live={live} />}
+          {task.status === 'ACCEPTED' && <DeliverForm task={task} onTx={setTxHash} live={live} pending={txPending} />}
 
           {task.status === 'ADJUDICATING' && (
             <p className="t-body ink-muted">
@@ -338,8 +349,8 @@ export function CaseDetail() {
                 to return escrow to the buyer and bond to the worker — no slash, no
                 reputation write.
               </p>
-              <button className="btn btn-primary" disabled={busy} onClick={() => act(() => writes.resolveNeutral(task.id))}>
-                Resolve neutrally
+              <button className="btn btn-primary" disabled={locked} onClick={() => act(() => writes.resolveNeutral(task.id))}>
+                {txPending && !busy ? 'Awaiting consensus…' : 'Resolve neutrally'}
               </button>
             </div>
           )}
@@ -362,8 +373,8 @@ export function CaseDetail() {
                   escrow; the full worker bond is slashed.
                 </span>
               </div>
-              <button className="btn btn-destructive" disabled={busy} onClick={() => act(() => writes.reclaimExpired(task.id))}>
-                Reclaim escrow + slash bond ({fmtGEN(task.escrow + task.bond)})
+              <button className="btn btn-destructive" disabled={locked} onClick={() => act(() => writes.reclaimExpired(task.id))}>
+                {txPending && !busy ? 'Awaiting consensus…' : `Reclaim escrow + slash bond (${fmtGEN(task.escrow + task.bond)})`}
               </button>
             </div>
           )}
@@ -397,8 +408,8 @@ export function CaseDetail() {
                     The appeal window has closed. Execute settlement to move funds
                     and record reputation.
                   </p>
-                  <button className="btn btn-primary" disabled={busy} onClick={() => act(() => writes.finalize(task.id))}>
-                    Execute settlement
+                  <button className="btn btn-primary" disabled={locked} onClick={() => act(() => writes.finalize(task.id))}>
+                    {txPending && !busy ? 'Awaiting consensus…' : 'Execute settlement'}
                   </button>
                 </div>
               )}
