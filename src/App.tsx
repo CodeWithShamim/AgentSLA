@@ -1,6 +1,6 @@
-import { useEffect } from 'react'
-import { NavLink, Route, Routes, Link } from 'react-router-dom'
-import { initLenis } from './design/motion'
+import { useEffect, useLayoutEffect, useRef } from 'react'
+import { NavLink, Route, Routes, Link, useLocation } from 'react-router-dom'
+import { destroyLenis, initLenis, playRouteFade } from './design/motion'
 import { CHAIN, CONTRACT_ADDRESS, explorerAddressUrl } from './config/chain'
 import { useMode } from './lib/reads'
 import { shortAddr } from './lib/format'
@@ -14,9 +14,23 @@ import { AgentProfile } from './views/AgentProfile'
 import { Appeal } from './views/Appeal'
 import { Docs } from './views/Docs'
 
+/** Route transitions (§6): a 160ms paper-level fade on the incoming view,
+ *  then its own scoped docket-open. Filings don't fly. */
+function RouteFade({ children }: { children: React.ReactNode }) {
+  const loc = useLocation()
+  const ref = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (ref.current) playRouteFade(ref.current)
+  }, [loc.pathname])
+  return <div ref={ref}>{children}</div>
+}
+
 function Shell() {
   const mode = useMode()
-  useEffect(() => { initLenis() }, [])
+  useEffect(() => {
+    initLenis()
+    return () => destroyLenis()
+  }, [])
 
   return (
     <>
@@ -55,15 +69,17 @@ function Shell() {
       </header>
 
       <main className="shell" id="main">
-        <Routes>
-          <Route path="/" element={<Board />} />
-          <Route path="/create" element={<CreateTask />} />
-          <Route path="/case/:id" element={<CaseDetail />} />
-          <Route path="/case/:id/appeal" element={<Appeal />} />
-          <Route path="/agents" element={<Agents />} />
-          <Route path="/agent/:address" element={<AgentProfile />} />
-          <Route path="/docs" element={<Docs />} />
-        </Routes>
+        <RouteFade>
+          <Routes>
+            <Route path="/" element={<Board />} />
+            <Route path="/create" element={<CreateTask />} />
+            <Route path="/case/:id" element={<CaseDetail />} />
+            <Route path="/case/:id/appeal" element={<Appeal />} />
+            <Route path="/agents" element={<Agents />} />
+            <Route path="/agent/:address" element={<AgentProfile />} />
+            <Route path="/docs" element={<Docs />} />
+          </Routes>
+        </RouteFade>
 
         <footer className="site-footer t-small">
           <span>

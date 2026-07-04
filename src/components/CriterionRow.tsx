@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { fmtIndex } from '../lib/format'
+import { useMountReveal } from '../lib/hooks'
 import type { CriterionResult } from '../lib/types'
 
 /** The atomic unit of the product — one row per SLA criterion (§5.3).
@@ -10,6 +11,7 @@ export function CriterionRow({ index, text, result }: {
   result?: CriterionResult
 }) {
   const [open, setOpen] = useState(false)
+  const reasonRef = useMountReveal<HTMLDivElement>(open)
   const state = result ? (result.met ? 'met' : 'notmet') : 'pending'
 
   return (
@@ -43,7 +45,7 @@ export function CriterionRow({ index, text, result }: {
         )}
       </div>
       {result && open && (
-        <div className="criterion-main">
+        <div className="criterion-main" ref={reasonRef} style={{ overflow: 'hidden' }}>
           <span />
           <div className="criterion-reason t-small">
             “{result.reason}”

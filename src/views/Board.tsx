@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom'
 import { DocketLine } from '../components/DocketLine'
 import { StatusChip } from '../components/StatusChip'
-import { useDocketOpen } from '../lib/hooks'
+import { playCardsRise, playDocketOpen } from '../design/motion'
+import { useCourtMotion } from '../lib/hooks'
 import { useTasks } from '../lib/reads'
 import { caseNo, fmtDate, fmtGEN } from '../lib/format'
 import type { Task } from '../lib/types'
@@ -40,7 +41,10 @@ function Section({ label, tasks }: { label: string; tasks: Task[] }) {
 
 export function Board() {
   const tasks = useTasks()
-  const root = useDocketOpen<HTMLDivElement>()
+  const root = useCourtMotion<HTMLDivElement>((el) => {
+    playDocketOpen(el)
+    playCardsRise(el)
+  }, [tasks.length > 0])
 
   const open = tasks.filter((t) => t.status === 'OPEN')
   const inProgress = tasks.filter((t) =>

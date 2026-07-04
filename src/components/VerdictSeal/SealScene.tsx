@@ -10,6 +10,16 @@ import { easeCourt } from '../../design/motion'
 const NODE_COUNT = 13
 const DELIBERATE_MS = 750
 const CONVERGE_MS = 650
+// Each node converges on its own clock: staggered starts, one shared
+// duration, and the last three land within ~60ms of each other —
+// consensus snapping shut, not a synchronized dance.
+const CONVERGE_NODE_MS = CONVERGE_MS - 200
+
+function convergeDelay(i: number): number {
+  const lastThree = NODE_COUNT - 3
+  if (i >= lastThree) return 140 + (i - lastThree) * 30 // 140 / 170 / 200
+  return (i / lastThree) * 120
+}
 
 function Nodes({ inkColor, hueColor, onDone }: {
   inkColor: string
@@ -28,6 +38,7 @@ function Nodes({ inkColor, hueColor, onDone }: {
         angle: (i / NODE_COUNT) * Math.PI * 2,
         speed: 0.5 + (i % 4) * 0.14,
         wobble: 4 + (i % 3) * 3,
+        delay: convergeDelay(i),
       })),
     [],
   )
@@ -37,36 +48,36 @@ function Nodes({ inkColor, hueColor, onDone }: {
     if (!g) return
     const t = performance.now() - start
 
-    let radius = 110
-    let mix = 0
-    let fade = 1
-
-    if (t < DELIBERATE_MS) {
-      radius = 110
-    } else if (t < DELIBERATE_MS + CONVERGE_MS) {
-      const p = easeCourt((t - DELIBERATE_MS) / CONVERGE_MS)
-      radius = 110 * (1 - p)
-      mix = p
-      fade = 1 - p * 0.9
-    } else {
-      if (!done.current) {
-        done.current = true
-        onDone()
-      }
-      fade = 0
+    if (t >= DELIBERATE_MS + CONVERGE_MS && !done.current) {
+      done.current = true
+      onDone()
     }
 
+    let ringFade = 1
     g.children.forEach((child, i) => {
       const s = seeds[i]
-      if (!s) return   // the faint deliberation ring, not a validator node
-      const spiral = mix * Math.PI * 0.8
-      const a = s.angle + (performance.now() - start) * 0.001 * s.speed + spiral
-      const wob = Math.sin(performance.now() * 0.003 + i) * s.wobble * (1 - mix)
-      child.position.set(Math.cos(a) * (radius + wob), Math.sin(a) * (radius + wob), 0)
       const mesh = child as THREE.Mesh
       const mat = mesh.material as THREE.MeshBasicMaterial
+      if (!s) {
+        // the faint deliberation ring, not a validator node
+        mat.opacity = 0.18 * ringFade
+        return
+      }
+      // Per-node convergence progress
+      const mix =
+        t < DELIBERATE_MS + s.delay
+          ? 0
+          : easeCourt(Math.min(1, (t - DELIBERATE_MS - s.delay) / CONVERGE_NODE_MS))
+      const radius = 110 * (1 - mix)
+      const fade = 1 - mix * 0.9
+      if (i === 0) ringFade = 1 - Math.min(1, Math.max(0, (t - DELIBERATE_MS) / CONVERGE_MS))
+
+      const spiral = mix * Math.PI * 0.8
+      const a = s.angle + t * 0.001 * s.speed + spiral
+      const wob = Math.sin(performance.now() * 0.003 + i) * s.wobble * (1 - mix)
+      child.position.set(Math.cos(a) * (radius + wob), Math.sin(a) * (radius + wob), 0)
       mat.color.copy(ink).lerp(hue, mix)
-      mat.opacity = fade
+      mat.opacity = t >= DELIBERATE_MS + CONVERGE_MS ? 0 : fade
     })
   })
 
@@ -96,7 +107,8 @@ export function SealScene({ inkColor, hueColor, onDone }: {
     <Canvas
       orthographic
       camera={{ zoom: 1, position: [0, 0, 100] }}
-      gl={{ alpha: true, antialias: true }}
+      gl={{ alpha: true, antialias: true, powerPreference: 'low-power' }}
+      dpr={[1, 2]}
       style={{ position: 'absolute', inset: 0 }}
       aria-hidden
     >

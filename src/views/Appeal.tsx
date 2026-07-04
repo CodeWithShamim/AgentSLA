@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { PARAMS } from '../config/chain'
+import { CountdownArc } from '../components/CountdownArc'
 import { CriterionRow } from '../components/CriterionRow'
 import { DocketLine } from '../components/DocketLine'
 import { TxLadder } from '../components/TxLadder'
@@ -65,6 +66,7 @@ export function Appeal() {
         <p className="t-data ink-faint">CASE {caseNo(task.id)} · appeal window</p>
         <h1 className="t-h1" style={{ marginTop: 'var(--s-2)' }}>File an appeal</h1>
         <div className="window-note" style={{ marginTop: 'var(--s-3)' }}>
+          <CountdownArc msLeft={msLeft} totalMs={PARAMS.appealWindowMs} />
           <span className="t-small">Window closes in</span>
           <span className="t-data">{fmtCountdown(msLeft)}</span>
         </div>

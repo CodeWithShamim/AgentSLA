@@ -1,7 +1,8 @@
 import { Link, useParams } from 'react-router-dom'
 import { DocketLine } from '../components/DocketLine'
+import { countUp, playDocketOpen, revealRows } from '../design/motion'
 import { caseNo, fmtDate } from '../lib/format'
-import { useDocketOpen } from '../lib/hooks'
+import { useCourtMotion } from '../lib/hooks'
 import { useAgent } from '../lib/reads'
 import type { Address } from '../lib/types'
 
@@ -12,7 +13,13 @@ const VERDICT_LABEL: Record<string, string> = {
 export function AgentProfile() {
   const { address } = useParams()
   const agent = useAgent((address ?? '0x0') as Address)
-  const root = useDocketOpen<HTMLDivElement>([address])
+  const score = agent.score
+  const root = useCourtMotion<HTMLDivElement>((el) => {
+    playDocketOpen(el)
+    const fig = el.querySelector<HTMLElement>('.score-figure')
+    if (fig) countUp(fig, 0, score)
+    revealRows(el.querySelectorAll('.history-row'), { stagger: 0.06 })
+  }, [address, agent.history.length > 0])
 
   return (
     <div ref={root}>

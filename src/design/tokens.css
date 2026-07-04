@@ -2,6 +2,30 @@
    §2–§4 as CSS variables. Single source of truth: no component
    may hardcode a color, font, duration, or radius. */
 
+/* Metric-matched local fallbacks: the swap from fallback → webfont must not
+   move the docket (CLS ≈ 0). size-adjust tuned per family. */
+@font-face {
+  font-family: 'Spectral Fallback';
+  src: local('Georgia');
+  size-adjust: 104%;
+  ascent-override: 96%;
+  descent-override: 25%;
+}
+@font-face {
+  font-family: 'Public Sans Fallback';
+  src: local('Helvetica Neue'), local('Arial');
+  size-adjust: 100.5%;
+  ascent-override: 97%;
+  descent-override: 26%;
+}
+@font-face {
+  font-family: 'Plex Mono Fallback';
+  src: local('Menlo'), local('Courier New');
+  size-adjust: 99%;
+  ascent-override: 102%;
+  descent-override: 27%;
+}
+
 :root {
   /* Surfaces */
   --paper:        #F1F3F5;
@@ -35,9 +59,9 @@
   --tint-neutral: #E7EAED;
 
   /* Typography */
-  --font-display: 'Spectral', Georgia, serif;
-  --font-body:    'Public Sans', system-ui, sans-serif;
-  --font-mono:    'IBM Plex Mono', ui-monospace, monospace;
+  --font-display: 'Spectral', 'Spectral Fallback', Georgia, serif;
+  --font-body:    'Public Sans', 'Public Sans Fallback', system-ui, sans-serif;
+  --font-mono:    'IBM Plex Mono', 'Plex Mono Fallback', ui-monospace, monospace;
 
   /* Spacing scale */
   --s-1: 4px;
@@ -223,6 +247,8 @@ button { font-family: inherit; cursor: pointer; }
   text-decoration: none;
 }
 .btn:hover { text-decoration: none; }
+/* The press is a stamp (§8). No ripples. */
+.btn:active:not(:disabled) { transform: translateY(1px); }
 
 .btn-primary {
   background: var(--signal);

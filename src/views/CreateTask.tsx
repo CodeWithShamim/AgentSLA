@@ -1,12 +1,69 @@
+import gsap from 'gsap'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { PARAMS } from '../config/chain'
 import { DocketLine } from '../components/DocketLine'
 import { TxLadder } from '../components/TxLadder'
+import { collapseBlock, revealBlock, DUR_FAST } from '../design/motion'
 import { fmtGEN, parseGEN, pct } from '../lib/format'
-import { useDocketOpen } from '../lib/hooks'
+import { useCountUp, useDocketOpen } from '../lib/hooks'
 import { useTasks } from '../lib/reads'
 import { writes } from '../lib/writes'
+
+const genOf = (wei: bigint) => Number(wei) / 1e18
+const fmtBond = (n: number) => `${n.toFixed(2)} GEN`
+
+/** One criterion line. New rows expand in from measured height; removal
+ *  collapses before the state change lands (§6 — cause precedes effect). */
+function CriterionField({ index, value, canRemove, animateIn, onChange, onRemove }: {
+  index: number
+  value: string
+  canRemove: boolean
+  animateIn: boolean
+  onChange: (v: string) => void
+  onRemove: () => void
+}) {
+  const rowRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    // Rows present at view mount arrive with the docket; only later
+    // additions expand in.
+    if (animateIn && rowRef.current) revealBlock(rowRef.current)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const remove = () => {
+    if (rowRef.current) collapseBlock(rowRef.current, onRemove)
+    else onRemove()
+  }
+
+  const placeholder =
+    index === 0 ? 'Mentions all three product features'
+    : index === 1 ? 'Formal tone throughout'
+    : 'At least 500 words'
+
+  return (
+    <div ref={rowRef} className="field" style={{ display: 'grid', gridTemplateColumns: '32px 1fr auto', gap: 'var(--s-3)', alignItems: 'center', overflow: 'hidden' }}>
+      <span className="t-data ink-faint crit-index">{String(index + 1).padStart(2, '0')}</span>
+      <input
+        className="input"
+        aria-label={`Criterion ${index + 1}`}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+      />
+      <button
+        className="btn btn-secondary"
+        style={{ padding: '4px 10px' }}
+        onClick={remove}
+        disabled={!canRemove}
+        aria-label={`Remove criterion ${index + 1}`}
+      >
+        −
+      </button>
+    </div>
+  )
+}
 
 /** Create-task flow (FR-1). The button states the exact consequence (§8). */
 export function CreateTask() {
@@ -15,7 +72,9 @@ export function CreateTask() {
 
   const [title, setTitle] = useState('')
   const [sla, setSla] = useState('')
-  const [criteria, setCriteria] = useState<string[]>(['', '', ''])
+  const [criteria, setCriteria] = useState<{ id: number; text: string }[]>([
+    { id: 0, text: '' }, { id: 1, text: '' }, { id: 2, text: '' },
+  ])
   const [escrowStr, setEscrowStr] = useState('10')
   const [days, setDays] = useState(7)
   const [err, setErr] = useState<string | null>(null)
@@ -25,13 +84,32 @@ export function CreateTask() {
   const tasks = useTasks()
   const filedAt = useRef(0)
   const filedTitle = useRef('')
+  const nextId = useRef(3)
+  const didMount = useRef(false)
+  const listRef = useRef<HTMLDivElement>(null)
+  useEffect(() => { didMount.current = true }, [])
 
   const escrow = parseGEN(escrowStr)
   const bond = escrow !== null ? pct(escrow, PARAMS.bondPct) : null
-  const filled = criteria.map((c) => c.trim()).filter(Boolean)
+  const filled = criteria.map((c) => c.text.trim()).filter(Boolean)
 
-  const setCriterion = (i: number, v: string) =>
-    setCriteria((cs) => cs.map((c, j) => (j === i ? v : c)))
+  // Bond auto-derives from escrow with a one-beat delay so cause→effect
+  // reads; the figure counts, the layout never moves (fixed mono width).
+  const bondRef = useCountUp<HTMLSpanElement>(
+    bond !== null ? genOf(bond) : 0,
+    (n) => (bond === null ? '—' : fmtBond(n)),
+    { delay: DUR_FAST },
+  )
+
+  const setCriterion = (id: number, text: string) =>
+    setCriteria((cs) => cs.map((c) => (c.id === id ? { ...c, text } : c)))
+
+  // Mono indices renumber with a 160ms opacity tick when the list changes.
+  useEffect(() => {
+    if (!didMount.current || !listRef.current) return
+    gsap.fromTo(listRef.current.querySelectorAll('.crit-index'),
+      { opacity: 0.35 }, { opacity: 1, duration: DUR_FAST, ease: 'court' })
+  }, [criteria.length])
 
   // Once the filed task appears on the docket, open its case view.
   useEffect(() => {
@@ -100,32 +178,22 @@ export function CreateTask() {
       </div>
 
       <DocketLine label="Criteria" />
-      <div style={{ display: 'grid', gap: 'var(--s-3)' }}>
+      <div ref={listRef} style={{ display: 'grid', gap: 'var(--s-3)' }}>
         {criteria.map((c, i) => (
-          <div key={i} className="field" style={{ display: 'grid', gridTemplateColumns: '32px 1fr auto', gap: 'var(--s-3)', alignItems: 'center' }}>
-            <span className="t-data ink-faint">{String(i + 1).padStart(2, '0')}</span>
-            <input
-              className="input"
-              aria-label={`Criterion ${i + 1}`}
-              value={c}
-              onChange={(e) => setCriterion(i, e.target.value)}
-              placeholder={i === 0 ? 'Mentions all three product features' : i === 1 ? 'Formal tone throughout' : 'At least 500 words'}
-            />
-            <button
-              className="btn btn-secondary"
-              style={{ padding: '4px 10px' }}
-              onClick={() => setCriteria((cs) => cs.filter((_, j) => j !== i))}
-              disabled={criteria.length <= 1}
-              aria-label={`Remove criterion ${i + 1}`}
-            >
-              −
-            </button>
-          </div>
+          <CriterionField
+            key={c.id}
+            index={i}
+            value={c.text}
+            canRemove={criteria.length > 1}
+            animateIn={didMount.current}
+            onChange={(v) => setCriterion(c.id, v)}
+            onRemove={() => setCriteria((cs) => cs.filter((x) => x.id !== c.id))}
+          />
         ))}
         <div>
           <button
             className="btn btn-secondary"
-            onClick={() => setCriteria((cs) => [...cs, ''])}
+            onClick={() => setCriteria((cs) => [...cs, { id: nextId.current++, text: '' }])}
             disabled={criteria.length >= 10}
           >
             + Add criterion ({criteria.length}/10)
@@ -141,7 +209,7 @@ export function CreateTask() {
             onChange={(e) => setEscrowStr(e.target.value)} />
           <span className="hint t-small">
             Minimum {fmtGEN(PARAMS.minEscrow)}. Worker bond will be{' '}
-            <span className="t-data">{bond !== null ? fmtGEN(bond) : '—'}</span> ({PARAMS.bondPct}%).
+            <span className="t-data" ref={bondRef} style={{ display: 'inline-block', minWidth: '7ch' }} /> ({PARAMS.bondPct}%).
           </span>
         </div>
         <div className="field">

@@ -1,18 +1,23 @@
-import { useMemo, useState } from 'react'
+import gsap from 'gsap'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { PARAMS } from '../config/chain'
+import { CountdownArc } from '../components/CountdownArc'
 import { CriterionRow } from '../components/CriterionRow'
 import { DocketLine } from '../components/DocketLine'
 import { EvidencePanel } from '../components/EvidencePanel'
 import { StatusChip } from '../components/StatusChip'
 import { TxLadder } from '../components/TxLadder'
 import { VerdictSeal } from '../components/VerdictSeal'
+import { countUp, revealRows } from '../design/motion'
 import { agentName } from '../lib/agents'
 import { caseNo, fmtCountdown, fmtDateTime, fmtGEN, pct, shortAddr } from '../lib/format'
-import { useDocketOpen, useCriteriaReveal } from '../lib/hooks'
+import { useDocketOpen } from '../lib/hooks'
 import { useMode, useNow, useTask } from '../lib/reads'
 import { writes } from '../lib/writes'
 import type { Task } from '../lib/types'
+
+const genOf = (wei: bigint) => Number(wei) / 1e18
 
 function Fact({ label, value, aria }: { label: string; value: string; aria?: string }) {
   return (
@@ -107,12 +112,68 @@ export function CaseDetail() {
   const [actErr, setActErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const root = useDocketOpen<HTMLDivElement>([id])
-  const criteriaRoot = useCriteriaReveal<HTMLDivElement>(task?.verdict?.judgedAt)
+  const criteriaRoot = useRef<HTMLDivElement>(null)
+  const settlementRoot = useRef<HTMLDivElement>(null)
 
   const ceremony = useMemo(
     () => !!task?.verdict && Date.now() - task.verdict.judgedAt < 20_000,
     [task?.verdict?.judgedAt],
   )
+
+  /** Master timeline (§6, CaseDetail): when the adjudication read resolves
+   *  fresh, the acts run as one proceeding — criteria stamp top→bottom,
+   *  the ceremony starts a beat before the last row lands. On revisit of
+   *  an already-final case, everything is static — the court doesn't
+   *  re-stamp. */
+  const [sealGo, setSealGo] = useState(!ceremony)
+  const playedFor = useRef<number | undefined>(undefined)
+  const judgedAt = task?.verdict?.judgedAt
+  useEffect(() => {
+    if (judgedAt === undefined) return
+    if (!ceremony) { setSealGo(true); return }
+    if (playedFor.current === judgedAt) return
+    playedFor.current = judgedAt
+    const el = criteriaRoot.current
+    const ctx = gsap.context(() => {
+      const tl = gsap.timeline()
+      tl.addLabel('criteria')
+      const rows = el ? revealRows(el.querySelectorAll('.criterion-row')) : null
+      if (rows) tl.add(rows, 'criteria')
+      tl.addLabel('ceremony', rows ? '-=0.1' : '+=0')
+      tl.call(() => setSealGo(true), undefined, 'ceremony')
+    }, el ?? undefined)
+    return () => {
+      // StrictMode/unmount: the reverted proceeding may replay in full.
+      playedFor.current = undefined
+      ctx.revert()
+    }
+  }, [judgedAt, ceremony])
+
+  /** Settlement act: when settlement lands while the case is on screen,
+   *  lines write in and GEN amounts count up to their exact formatted
+   *  figures. Already-settled cases render static. */
+  const hadSettlement = useRef<boolean | null>(null)
+  const hasSettlement = !!task?.settlement
+  useEffect(() => {
+    if (hadSettlement.current === null) {
+      hadSettlement.current = hasSettlement
+      return
+    }
+    if (!hasSettlement || hadSettlement.current) return
+    hadSettlement.current = true
+    const el = settlementRoot.current
+    if (!el) return
+    const ctx = gsap.context(() => {
+      revealRows(el.querySelectorAll('.settlement-line'), { stagger: 0.06 })
+      el.querySelectorAll<HTMLElement>('.sl-amount').forEach((span) => {
+        countUp(span, 0, Number(span.dataset.gen ?? 0), {
+          format: (n) => `${n.toFixed(2)} GEN`,
+          final: span.dataset.final,
+        })
+      })
+    }, el)
+    return () => ctx.revert()
+  }, [hasSettlement])
 
   if (!task) {
     return (
@@ -300,10 +361,11 @@ export function CaseDetail() {
 
           {v && (task.status === 'ADJUDICATED' || task.status === 'FINAL') && (
             <>
-              <VerdictSeal task={task} ceremony={ceremony} />
+              <VerdictSeal task={task} ceremony={ceremony} go={sealGo} />
               {appealOpen && (
                 <div style={{ display: 'grid', gap: 'var(--s-3)' }}>
                   <div className="window-note">
+                    <CountdownArc msLeft={msLeft} totalMs={PARAMS.appealWindowMs} />
                     <span className="t-small">Appeal window closes in</span>
                     <span className="t-data">{fmtCountdown(msLeft)}</span>
                   </div>
@@ -333,12 +395,18 @@ export function CaseDetail() {
           {task.settlement && (
             <>
               <DocketLine label="Settlement" />
-              <div className="filing ruled" style={{ padding: '0 var(--s-4)' }}>
+              <div className="filing ruled" style={{ padding: '0 var(--s-4)' }} ref={settlementRoot}>
                 {task.settlement.map((line, i) => (
                   <div key={i} className={`settlement-line sl-${line.kind}`}>
                     <span className="sl-label t-small">{line.label}</span>
                     <span className="t-data ink-faint">{agentName(line.to)}</span>
-                    <span className="sl-amount t-data">{fmtGEN(line.amount)}</span>
+                    <span
+                      className="sl-amount t-data"
+                      data-gen={genOf(line.amount)}
+                      data-final={fmtGEN(line.amount)}
+                    >
+                      {fmtGEN(line.amount)}
+                    </span>
                   </div>
                 ))}
               </div>
