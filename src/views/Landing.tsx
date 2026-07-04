@@ -130,6 +130,9 @@ export function Landing() {
       entries.forEach((e) => {
         if (!e.isIntersecting) return
         gsap.to(e.target, { autoAlpha: 1, y: 0, duration: DUR_MOVE, ease: 'court' })
+        // Trigger the Act III sci-fi flicker (CSS keyframes, scoped to
+        // .act3-step .t-data) once, as the step scrolls into view.
+        e.target.classList.add('is-revealed')
         reveals.unobserve(e.target)
       })
     }, { threshold: 0.25 })
@@ -141,6 +144,7 @@ export function Landing() {
       window.removeEventListener('scroll', onScroll)
       gsap.killTweensOf(targets)
       gsap.set(targets, { clearProps: 'all' })
+      targets.forEach((t) => t.classList.remove('is-revealed'))
       if (heroCopy.current) gsap.set(heroCopy.current, { clearProps: 'transform' })
       if (canvasEl) gsap.set(canvasEl, { clearProps: 'transform' })
       if (fadeSection.current) {

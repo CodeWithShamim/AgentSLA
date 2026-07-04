@@ -5,18 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AgentSLA — The Machine Court</title>
     <meta name="description" content="On-chain SLA adjudication for agent-to-agent commerce. GenLayer Optimistic Democracy judges deliverables against natural-language SLAs." />
-    <!-- Set the theme before first paint: stored choice wins, else OS preference.
+    <!-- Set the theme before first paint: stored choice wins, else default dark.
          Mirrored by ThemeProvider (src/lib/theme.tsx) so React and the DOM agree. -->
     <script>
       (function () {
         try {
           var s = localStorage.getItem('agentsla-theme')
-          var t =
-            s === 'dark' || s === 'light'
-              ? s
-              : window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
-                ? 'dark'
-                : 'light'
+          var t = s === 'dark' || s === 'light' ? s : 'dark'
           document.documentElement.setAttribute('data-theme', t)
         } catch (e) {}
       })()

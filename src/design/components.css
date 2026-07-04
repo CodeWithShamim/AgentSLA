@@ -449,6 +449,35 @@
 .act3-step { display: grid; gap: var(--s-2); align-content: start; justify-items: start; }
 .act3-name { text-transform: uppercase; letter-spacing: 1.5px; color: var(--ink); }
 
+/* Sci-fi power-on: as each step scrolls into view (JS adds .is-revealed),
+   the case number and step name blink like a terminal coming up, then hold.
+   steps(1) = hard on/off cuts, not a fade — a proper flicker. Neutralised
+   under prefers-reduced-motion by the global rule in tokens.css. */
+@keyframes sci-flicker {
+  0%   { opacity: 0.15; }
+  8%   { opacity: 1; }
+  12%  { opacity: 0.35; }
+  17%  { opacity: 1; }
+  23%  { opacity: 0.5; }
+  31%  { opacity: 1; }
+  36%  { opacity: 0.2; }
+  44%  { opacity: 1; }
+  60%  { opacity: 0.7; }
+  100% { opacity: 1; }
+}
+@keyframes sci-glow {
+  0%, 100% { text-shadow: none; }
+  45%      { text-shadow: 0 0 8px var(--signal); }
+}
+.act3-step.is-revealed .t-data {
+  animation: sci-flicker 680ms steps(1, end) both;
+}
+.act3-step.is-revealed .act3-name {
+  animation:
+    sci-flicker 820ms steps(1, end) 70ms both,
+    sci-glow 900ms var(--ease-court) 70ms both;
+}
+
 .act-docket { padding: var(--s-8) 0; background: var(--paper); }
 .act4-grid {
   display: grid;
