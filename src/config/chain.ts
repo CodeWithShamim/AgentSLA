@@ -25,6 +25,12 @@ export const BRADBURY = {
 export const CONTRACT_ADDRESS: Address | null =
   (deployment.address as Address) ?? null
 
+/** GenLayer Studio block explorer (studionet). */
+export const EXPLORER_URL = 'https://explorer-studio.genlayer.com'
+
+export const explorerAddressUrl = (address: string): string =>
+  `${EXPLORER_URL}/address/${address}`
+
 export const ON_CHAIN = Boolean(CONTRACT_ADDRESS)
 
 /** Protocol parameters (mirrors the deployed contract's get_params). */

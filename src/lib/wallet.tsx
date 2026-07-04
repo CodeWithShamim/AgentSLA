@@ -1,6 +1,6 @@
 import { PrivyProvider, usePrivy, useWallets } from '@privy-io/react-auth'
 import { studionet } from 'genlayer-js/chains'
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { PRIVY_APP_ID } from '../config/chain'
 import { chainBackend } from './chain'
 import { shortAddr } from './format'
@@ -107,6 +107,43 @@ export function WalletControls() {
   return <PrivyControls />
 }
 
+/** Connected-wallet address: click to copy the full address. */
+function CopyAddress({ address }: { address: string }) {
+  const [copied, setCopied] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout>>()
+
+  useEffect(() => () => clearTimeout(timer.current), [])
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(address)
+    } catch {
+      // Clipboard API unavailable (insecure context) — legacy fallback.
+      const ta = document.createElement('textarea')
+      ta.value = address
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      ta.remove()
+    }
+    setCopied(true)
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => setCopied(false), 1500)
+  }
+
+  return (
+    <button
+      className="seal-download t-data"
+      onClick={copy}
+      title={`${address} — click to copy`}
+      aria-label={`Copy connected wallet address ${address}`}
+      style={{ cursor: 'pointer' }}
+    >
+      {copied ? 'copied ✓' : shortAddr(address)}
+    </button>
+  )
+}
+
 function PrivyControls() {
   const { ready, authenticated, login, logout, user } = usePrivy()
   const { wallets } = useWallets()
@@ -124,9 +161,11 @@ function PrivyControls() {
   const addr = wallets[0]?.address
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--s-2)' }}>
-      <span className="t-data" aria-label={`connected wallet ${addr ?? ''}`}>
-        {addr ? shortAddr(addr) : user?.email?.address ?? 'connected'}
-      </span>
+      {addr ? (
+        <CopyAddress address={addr} />
+      ) : (
+        <span className="t-data">{user?.email?.address ?? 'connected'}</span>
+      )}
       <button
         className="seal-download t-small"
         onClick={logout}

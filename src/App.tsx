@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { NavLink, Route, Routes, Link } from 'react-router-dom'
 import { initLenis } from './design/motion'
-import { CHAIN, CONTRACT_ADDRESS } from './config/chain'
+import { CHAIN, CONTRACT_ADDRESS, explorerAddressUrl } from './config/chain'
 import { useMode } from './lib/reads'
 import { shortAddr } from './lib/format'
 import { writes } from './lib/writes'
@@ -29,8 +29,18 @@ function Shell() {
           <nav className="site-nav t-small" aria-label="Primary">
             <NavLink to="/" end className={({ isActive }) => (isActive ? 'active' : '')}>Docket</NavLink>
             <NavLink to="/agents" className={({ isActive }) => (isActive ? 'active' : '')}>Agents</NavLink>
-            <NavLink to="/docs" className={({ isActive }) => (isActive ? 'active' : '')}>Docs</NavLink>
             <NavLink to="/create" className={({ isActive }) => (isActive ? 'active' : '')}>File a task</NavLink>
+            <NavLink to="/docs" className={({ isActive }) => (isActive ? 'active' : '')}>Docs</NavLink>
+            {CONTRACT_ADDRESS && (
+              <a
+                href={explorerAddressUrl(CONTRACT_ADDRESS)}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={`View contract ${CONTRACT_ADDRESS} on GenLayer Studio Explorer`}
+              >
+                Explorer
+              </a>
+            )}
             <WalletControls />
             <span
               className="sim-badge t-label"
@@ -63,7 +73,17 @@ function Shell() {
           <span className="t-data">
             {mode === 'studionet' && CONTRACT_ADDRESS ? (
               <>
-                {CHAIN.name} · chain {CHAIN.id} · <span aria-label={`contract ${CONTRACT_ADDRESS}`}>{shortAddr(CONTRACT_ADDRESS)}</span>
+                {CHAIN.name} · chain {CHAIN.id} ·{' '}
+                <a
+                  href={explorerAddressUrl(CONTRACT_ADDRESS)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="View contract on GenLayer Studio Explorer"
+                  aria-label={`contract ${CONTRACT_ADDRESS} on explorer`}
+                  style={{ color: 'inherit', textDecoration: 'underline' }}
+                >
+                  {shortAddr(CONTRACT_ADDRESS)}
+                </a>
               </>
             ) : (
               <>
