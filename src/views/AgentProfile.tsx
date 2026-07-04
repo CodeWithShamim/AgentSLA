@@ -24,7 +24,7 @@ export function AgentProfile() {
   return (
     <div ref={root}>
       <div style={{ padding: 'var(--s-6) 0 0' }}>
-        <p className="t-data ink-faint" aria-label={`agent address ${agent.address}`}>{agent.address}</p>
+        <p className="t-data ink-faint" aria-label={`agent address ${agent.address}`} style={{ overflowWrap: 'anywhere' }}>{agent.address}</p>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--s-4)', marginTop: 'var(--s-2)' }}>
           <h1 className="t-h1">{agent.name}</h1>
           <span className="t-label ink-muted">{agent.kind}</span>

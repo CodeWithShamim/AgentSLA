@@ -276,6 +276,80 @@
 }
 .theme-toggle svg { display: block; }
 
+/* Mobile nav trigger — hidden on desktop, where the nav lays out inline. */
+.nav-toggle { display: none; }
+
+@media (max-width: 768px) {
+  .nav-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    color: var(--ink-muted);
+    background: transparent;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    transition: color var(--dur-fast) var(--ease-court),
+                border-color var(--dur-fast) var(--ease-court);
+  }
+  .nav-toggle:hover { color: var(--ink); border-color: var(--rule-strong); }
+  .nav-toggle svg { display: block; }
+
+  /* The nav drops out of the bar as a filing panel; the header (sticky,
+     positioned) is its containing block, so it rides full-width below. */
+  .site-nav {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-left: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: var(--s-2) var(--s-5) var(--s-4);
+    background: var(--paper);
+    border-bottom: 1px solid var(--rule-strong);
+    box-shadow: var(--shadow-filing);
+    display: none;
+  }
+  .site-nav.open { display: flex; }
+  .site-nav > a { padding: var(--s-3) 0; }
+  .site-nav a.active { box-shadow: none; color: var(--signal); }
+  /* Compact controls stay their own size, left-aligned, inside the column. */
+  .site-nav .theme-toggle { align-self: flex-start; margin-top: var(--s-2); }
+  .site-nav .sim-badge { align-self: flex-start; margin-top: var(--s-3); }
+  /* Court subtitle is the first thing to yield when the bar gets tight. */
+}
+
+@media (max-width: 400px) {
+  .brand .brand-court { display: none; }
+}
+
+/* Definition rows (Docs) — a fixed label rail on desktop, stacked on phones.
+   Column width rides --def-col so each list can size its own label. */
+.def-row {
+  display: grid;
+  grid-template-columns: var(--def-col, 160px) 1fr;
+  gap: var(--s-4);
+  padding: var(--s-3) 0;
+  align-items: baseline;
+}
+
+/* Paired form fields sit side by side, then stack when the column narrows. */
+.field-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-4);
+}
+
+@media (max-width: 560px) {
+  .def-row { grid-template-columns: 1fr; gap: var(--s-1); }
+  .field-pair { grid-template-columns: 1fr; }
+}
+
 /* Sticky footer: main grows inside the #root column; the route view
    takes the slack so the footer rides the viewport bottom when the
    page is short (empty states, fetching). */

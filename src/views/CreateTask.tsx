@@ -202,7 +202,7 @@ export function CreateTask() {
       </div>
 
       <DocketLine label="Stakes" />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--s-4)' }}>
+      <div className="field-pair">
         <div className="field">
           <label className="t-label" htmlFor="ct-escrow">Escrow (GEN)</label>
           <input id="ct-escrow" className="input mono" inputMode="decimal" value={escrowStr}

@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import { BRADBURY, CHAIN, CONTRACT_ADDRESS, PARAMS, explorerAddressUrl } from '../config/chain'
 import { DocketLine } from '../components/DocketLine'
@@ -83,7 +84,7 @@ export function Docs() {
             rule: 'Validators failed to converge (soft error). No party is at fault: escrow returns to the buyer, bond to the worker, no slash, no reputation write.',
           },
         ].map((v) => (
-          <div key={v.name} style={{ display: 'grid', gridTemplateColumns: '96px 1fr', gap: 'var(--s-4)', padding: 'var(--s-3) 0', alignItems: 'baseline' }}>
+          <div key={v.name} className="def-row" style={{ '--def-col': '96px' } as CSSProperties}>
             <span className="t-label" style={{ color: v.hue }}>{v.name}</span>
             <span className="t-small">{v.rule}</span>
           </div>
@@ -106,7 +107,7 @@ export function Docs() {
           { tag: 'TRANSIENT', bad: false, rule: 'Timeout or rate limit. Treated the same as EXTERNAL.' },
           { tag: 'LLM_ERROR', bad: false, rule: 'Validator non-convergence, malformed output after sanitization, or refusal. After retries are exhausted, the case surfaces a soft-error state and either party may trigger neutral resolution.' },
         ].map((e) => (
-          <div key={e.tag} style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 'var(--s-4)', padding: 'var(--s-3) 0', alignItems: 'baseline' }}>
+          <div key={e.tag} className="def-row" style={{ '--def-col': '120px' } as CSSProperties}>
             <span className={`tag t-data ${e.bad ? '' : ''}`} style={{ justifySelf: 'start', padding: '1px 6px', borderRadius: 'var(--radius)', background: e.bad ? 'var(--tint-notmet)' : 'var(--tint-neutral)', color: e.bad ? 'var(--verdict-notmet)' : 'var(--verdict-neutral)' }}>
               {e.tag}
             </span>
@@ -154,7 +155,7 @@ export function Docs() {
           { c: 'AgentReputation', r: 'Verdict history and score per agent address' },
           { c: 'AppealManager', r: 'Appeal bonds, window enforcement, re-adjudication trigger' },
         ].map((row) => (
-          <div key={row.c} style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 'var(--s-4)', padding: 'var(--s-3) 0', alignItems: 'baseline' }}>
+          <div key={row.c} className="def-row">
             <span className="t-data">{row.c}</span>
             <span className="t-small ink-muted">{row.r}</span>
           </div>
@@ -164,7 +165,7 @@ export function Docs() {
         Live deployment: {CHAIN.name}, chain <span className="t-data">{CHAIN.id}</span>,
         contract{' '}
         {CONTRACT_ADDRESS ? (
-          <a className="t-data" href={explorerAddressUrl(CONTRACT_ADDRESS)} target="_blank" rel="noreferrer">
+          <a className="t-data" href={explorerAddressUrl(CONTRACT_ADDRESS)} target="_blank" rel="noreferrer" style={{ overflowWrap: 'anywhere' }}>
             {CONTRACT_ADDRESS}
           </a>
         ) : (

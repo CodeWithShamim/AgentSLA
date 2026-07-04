@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { NavLink, Route, Routes, Link, useLocation } from 'react-router-dom'
 import { destroyLenis, getLenis, initLenis, playRouteFade } from './design/motion'
 import { CHAIN, CONTRACT_ADDRESS, explorerAddressUrl } from './config/chain'
@@ -32,10 +32,14 @@ function RouteFade({ children }: { children: React.ReactNode }) {
 
 function Shell() {
   const mode = useMode()
+  const loc = useLocation()
+  const [menuOpen, setMenuOpen] = useState(false)
   useEffect(() => {
     initLenis()
     return () => destroyLenis()
   }, [])
+  // Collapse the mobile menu whenever the route changes (a nav link was tapped).
+  useEffect(() => { setMenuOpen(false) }, [loc.pathname])
 
   return (
     <>
@@ -45,7 +49,30 @@ function Shell() {
             <span className="brand-name">AgentSLA</span>
             <span className="brand-court t-small">· The Machine Court</span>
           </Link>
-          <nav className="site-nav t-small" aria-label="Primary">
+          <button
+            type="button"
+            className="nav-toggle"
+            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={menuOpen}
+            aria-controls="primary-nav"
+            onClick={() => setMenuOpen((o) => !o)}
+          >
+            {menuOpen ? (
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden>
+                <path d="M4 4l10 10M14 4L4 14" />
+              </svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden>
+                <path d="M2 5h14M2 9h14M2 13h14" />
+              </svg>
+            )}
+          </button>
+          <nav
+            id="primary-nav"
+            className={`site-nav t-small${menuOpen ? ' open' : ''}`}
+            aria-label="Primary"
+            onClick={() => setMenuOpen(false)}
+          >
             <NavLink to="/board" className={({ isActive }) => (isActive ? 'active' : '')}>Docket</NavLink>
             <NavLink to="/agents" className={({ isActive }) => (isActive ? 'active' : '')}>Agents</NavLink>
             <NavLink to="/create" className={({ isActive }) => (isActive ? 'active' : '')}>File a task</NavLink>
