@@ -254,6 +254,28 @@
   padding: 2px 8px;
 }
 
+/* Light/dark switch — a quiet icon button that matches the nav ink. */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--ink-muted);
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  transition: color var(--dur-fast) var(--ease-court),
+              border-color var(--dur-fast) var(--ease-court),
+              background-color var(--dur-fast) var(--ease-court);
+}
+.theme-toggle:hover {
+  color: var(--ink);
+  border-color: var(--rule-strong);
+}
+.theme-toggle svg { display: block; }
+
 /* Sticky footer: main grows inside the #root column; the route view
    takes the slack so the footer rides the viewport bottom when the
    page is short (empty states, fetching). */

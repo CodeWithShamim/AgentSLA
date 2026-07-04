@@ -27,6 +27,8 @@
 }
 
 :root {
+  color-scheme: light;
+
   /* Surfaces */
   --paper:        #F1F3F5;
   --paper-raised: #FFFFFF;
@@ -108,13 +110,17 @@
   --brass-dim:      #937E4A;  /* lifted from spec #6E5E38 — 4.68:1, AA for seal ring text */
 }
 
-/* ---------- Chamber scope ----------
-   The chamber never hosts forms or primary work — reading and ceremony
-   only. Inside it the v1 role variables are remapped, so every existing
-   component restyles by cascade; the chroma budget is unchanged. */
+/* ---------- Chamber scope / global dark theme ----------
+   The chamber remaps the v1 role variables so every existing component
+   restyles by cascade; the chroma budget is unchanged. As a local scope it
+   hosts reading and ceremony only. Promoted to the document root
+   (`[data-theme='dark']`, header toggle, OS default) it becomes the whole
+   app's dark theme — the same palette, no new colors. */
 
 .chamber,
-.act-fade[data-phase='dark'] {
+.act-fade[data-phase='dark'],
+:root[data-theme='dark'] {
+  color-scheme: dark;
   --paper:        var(--chamber);
   --paper-raised: var(--chamber-raised);
   --paper-sunken: var(--chamber-sunken);
@@ -139,9 +145,16 @@
   color: var(--chamber-text);
 }
 
-/* Brass finality on chamber: final chips and closed arcs end in metal. */
-.chamber .chip-final { background: transparent; color: var(--brass); border-color: var(--brass-dim); }
-.chamber .btn-primary:hover { background: #94A6EC; border-color: #94A6EC; }
+/* Brass finality on chamber: final chips and closed arcs end in metal.
+   The same overrides ride the global dark theme (elements aren't nested in
+   a .chamber there, so the root scope re-states them). */
+.chamber .chip-final,
+:root[data-theme='dark'] .chip-final { background: transparent; color: var(--brass); border-color: var(--brass-dim); }
+.chamber .btn-primary:hover,
+:root[data-theme='dark'] .btn-primary:hover { background: #94A6EC; border-color: #94A6EC; }
+
+/* Paper grain belongs to the filing office; dark surfaces paint solid. */
+:root[data-theme='dark'] body { background-image: none; }
 
 /* Vignette — radial darkening at chamber edges, static. */
 .chamber-vignette { position: relative; }

@@ -2,6 +2,7 @@ import { PrivyProvider, usePrivy, useWallets } from '@privy-io/react-auth'
 import { studionet } from 'genlayer-js/chains'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { PRIVY_APP_ID } from '../config/chain'
+import { useTheme } from './theme'
 import { chainBackend } from './chain'
 import { shortAddr } from './format'
 import type { Address } from './types'
@@ -29,13 +30,14 @@ const STUDIO_CHAIN = {
 const STUDIO_CHAIN_HEX = `0x${studionet.id.toString(16)}`
 
 export function WalletBoundary({ children }: { children: ReactNode }) {
+  const { theme } = useTheme()
   if (!PRIVY_APP_ID) return <>{children}</>
   return (
     <PrivyProvider
       appId={PRIVY_APP_ID}
       config={{
         appearance: {
-          theme: 'light',
+          theme: theme === 'dark' ? 'dark' : 'light',
           accentColor: '#2643B4',
           logo: undefined,
         },

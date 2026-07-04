@@ -9,6 +9,7 @@ import { VerdictSeal } from '../components/VerdictSeal'
 import { DUR_MOVE, prefersReducedMotion } from '../design/motion'
 import { CHAIN } from '../config/chain'
 import { useReducedMotion } from '../lib/hooks'
+import { useTheme } from '../lib/theme'
 import { useTasks } from '../lib/reads'
 import { TaskCard } from './Board'
 
@@ -71,6 +72,7 @@ export function Landing() {
   const fadeSection = useRef<HTMLElement>(null)
   const [heroInView, setHeroInView] = useState(true)
   const reduced = useReducedMotion()
+  const { theme } = useTheme()
   const tasks = useTasks()
 
   const latest = [...tasks].sort((a, b) => b.createdAt - a.createdAt).slice(0, 3)
@@ -102,6 +104,15 @@ export function Landing() {
       canvasY?.(Math.min(y * 0.04, 24))
       const sec = fadeSection.current
       if (sec) {
+        // The chamber→paper fade is a light-theme device: you scroll out of
+        // the dark chamber into the paper filing office. In dark mode there
+        // is no paper to fade into — everything is chamber — so hold the
+        // section dark and let the CSS surface (var(--chamber)) show through.
+        if (theme === 'dark') {
+          sec.style.backgroundColor = ''
+          sec.dataset.phase = 'dark'
+          return
+        }
         const rect = sec.getBoundingClientRect()
         const vh = window.innerHeight
         const p = Math.max(0, Math.min(1, (vh - rect.top) / (vh * 1.4)))
@@ -137,7 +148,7 @@ export function Landing() {
         delete fadeSection.current.dataset.phase
       }
     }
-  }, [reduced])
+  }, [reduced, theme])
 
   return (
     <div ref={root} className="landing full-bleed">

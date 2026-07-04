@@ -6,6 +6,7 @@ import { useMode } from './lib/reads'
 import { shortAddr } from './lib/format'
 import { writes } from './lib/writes'
 import { WalletBoundary, WalletControls } from './lib/wallet'
+import { ThemeToggle } from './components/ThemeToggle'
 import { Board } from './views/Board'
 import { Landing } from './views/Landing'
 import { CaseDetail } from './views/CaseDetail'
@@ -60,6 +61,7 @@ function Shell() {
               </a>
             )}
             <WalletControls />
+            <ThemeToggle />
             <span
               className="sim-badge t-data"
               title={mode === 'studionet'
