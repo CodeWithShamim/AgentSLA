@@ -2,8 +2,8 @@
   "network": "studionet",
   "chainId": 61999,
   "rpcUrl": "https://studio.genlayer.com/api",
-  "address": "0xAE40bC7ED11236e883303D393f504608DbE31f93",
-  "deployedAt": "2026-07-04T09:10:23.873Z",
+  "address": "0x8e454d511e5CBD67d364e8FE3aEff26685B0d5AB",
+  "deployedAt": "2026-07-16T16:55:42.694Z",
   "appealWindowMs": 120000,
   "minEscrow": "1000000000000000000"
 }

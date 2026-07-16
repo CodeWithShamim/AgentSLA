@@ -38,10 +38,17 @@ console.log('deployer:', account.address)
 
 const client = createClient({ chain: studionet, account })
 
-// Studio is gasless but accounts still carry a sim balance.
+// Escrows and bonds ride as real value now, so the deployer needs a real
+// wei-scale balance. The amount exceeds Number.MAX_SAFE_INTEGER, so the
+// JSON-RPC body carries the integer literal by hand.
 try {
-  await client.request({ method: 'sim_fundAccount', params: [account.address, 1000] })
-  console.log('funded deployer on Studio')
+  const amount = (10_000n * 10n ** 18n).toString()   // 10,000 GEN
+  await fetch(studionet.rpcUrls.default.http[0], {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: `{"jsonrpc":"2.0","id":1,"method":"sim_fundAccount","params":["${account.address}",${amount}]}`,
+  })
+  console.log('funded deployer on Studio (10,000 GEN)')
 } catch (e) {
   console.log('fund skipped:', String(e.message || e).slice(0, 120))
 }

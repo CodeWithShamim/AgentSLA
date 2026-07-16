@@ -11,9 +11,21 @@
 # and acceptance compares ONLY (a) the top-level verdict enum and (b) the
 # boolean vector of per-criterion results. Never prose, never confidence.
 #
-# GEN amounts are a contract-internal ledger (u256 wei). Studio is gasless and
-# x402 payment rails are out of scope (PRD §1.4); escrow/bond amounts are
-# declared at commitment and settle through the ledger.
+# Asset custody (FR-3.0): every stake is real native GEN held by this
+# contract. create_task / accept_task / file_appeal are payable and take
+# custody of exactly the declared escrow / bond / appeal bond
+# (gl.message.value). Settlement moves custody from `locked` to per-agent
+# withdrawable claims (pull-payment pattern), and withdraw() pays claims
+# out with a native emit_transfer. Invariant, enforced on every move and
+# checked end to end by tests/direct/test_assets.py:
+#
+#     contract.balance == locked + withdrawable_total
+#
+# Custody only changes through the three payable entry points and
+# withdraw(), so the ledger can never promise GEN the contract does not
+# hold. (A withdraw's outbound transfer is a triggered transaction; while
+# it is in flight custody may briefly exceed the ledger — a surplus, never
+# a deficit.) x402 payment rails remain out of scope (PRD §1.4).
 
 from genlayer import *
 
@@ -165,7 +177,10 @@ class AgentSLA(gl.Contract):
     appeal_window_ms: u256
     min_escrow: u256
     treasury: Address
-    balances: TreeMap[Address, u256]      # internal GEN ledger
+    balances: TreeMap[Address, u256]      # withdrawable claims, backed 1:1 by custody
+    locked: u256                          # custody backing open escrows/bonds
+    withdrawable_total: u256              # sum of balances (claims payable)
+    paid_out: u256                        # cumulative native GEN sent via withdraw()
     rep_events_json: DynArray[str]        # {agent, task_id, role, verdict, delta, ts}
 
     def __init__(self, appeal_window_ms: int, min_escrow: int):
@@ -173,6 +188,9 @@ class AgentSLA(gl.Contract):
         self.appeal_window_ms = appeal_window_ms
         self.min_escrow = min_escrow
         self.treasury = Address('0x7EA5000000000000000000000000000000000000')
+        self.locked = u256(0)
+        self.withdrawable_total = u256(0)
+        self.paid_out = u256(0)
 
     # ------------------------------------------------------------------
     # helpers (deterministic)
@@ -191,8 +209,25 @@ class AgentSLA(gl.Contract):
             raise Exception(f'EXPECTED: no task {task_id}')
         return t
 
+    def _take_custody(self, expected: int, label: str) -> None:
+        """Payable intake: the tx must carry exactly the declared stake.
+        The received value is native GEN now held by this contract."""
+        sent = int(gl.message.value)
+        if sent != int(expected):
+            raise Exception(
+                f'EXPECTED: {label} requires exactly {int(expected)} wei attached, got {sent}')
+        self.locked = u256(int(self.locked) + sent)
+
     def _credit(self, who: Address, amount: int) -> None:
-        self.balances[who] = u256(int(self.balances.get(who, u256(0))) + int(amount))
+        """Move custody from locked to a withdrawable claim. Every unit
+        credited here entered through a payable method, so claims are
+        always fully backed by contract balance."""
+        amount = int(amount)
+        if amount > int(self.locked):
+            raise Exception('INVARIANT: release exceeds locked custody')
+        self.locked = u256(int(self.locked) - amount)
+        self.withdrawable_total = u256(int(self.withdrawable_total) + amount)
+        self.balances[who] = u256(int(self.balances.get(who, u256(0))) + amount)
 
     def _rep(self, agent: Address, task_id: int, role: str, verdict: str, delta: int) -> None:
         self.rep_events_json.append(json.dumps({
@@ -332,18 +367,24 @@ class AgentSLA(gl.Contract):
     # public writes (FR-1, FR-2, FR-4, FR-5)
     # ------------------------------------------------------------------
 
-    @gl.public.write
+    @gl.public.write.payable
     def create_task(self, title: str, sla_text: str, criteria_json: str,
-                    deadline_ms: int, escrow: int) -> int:
+                    deadline_ms: int) -> int:
+        """The escrow IS the attached value: gl.message.value moves into
+        contract custody here — no declared-but-unfunded escrows exist."""
         criteria = json.loads(criteria_json)
         if not isinstance(criteria, list) or not (1 <= len(criteria) <= 10):
             raise Exception('EXPECTED: criteria must be a JSON list of 1-10 statements')
         if any(not str(c).strip() for c in criteria):
             raise Exception('EXPECTED: empty criterion')
-        if int(escrow) < int(self.min_escrow):
+        escrow = int(gl.message.value)
+        if escrow < int(self.min_escrow):
             raise Exception('EXPECTED: escrow below minimum')
         if not title.strip() or not sla_text.strip():
             raise Exception('EXPECTED: title and SLA text are required')
+        if int(deadline_ms) <= self._now_ms():
+            raise Exception('EXPECTED: deadline must be in the future')
+        self.locked = u256(int(self.locked) + escrow)
 
         task_id = int(self.next_id)
         self.next_id = u256(task_id + 1)
@@ -364,13 +405,19 @@ class AgentSLA(gl.Contract):
         )
         return task_id
 
-    @gl.public.write
+    @gl.public.write.payable
     def accept_task(self, task_id: int) -> None:
+        """Worker stakes the performance bond (20% of escrow) as real
+        attached value — acceptance without funded skin-in-the-game
+        is impossible."""
         t = self._get(task_id)
         if t.status != 'OPEN':
             raise Exception(f'EXPECTED: task is {t.status}, not OPEN')
         if gl.message.sender_address == t.buyer:
             raise Exception('EXPECTED: buyer cannot accept own task')
+        if self._now_ms() > int(t.deadline_ms):
+            raise Exception('EXPECTED: past deadline')
+        self._take_custody(int(t.bond), 'worker bond')
         t.worker = gl.message.sender_address
         t.has_worker = True
         t.status = 'ACCEPTED'
@@ -414,8 +461,10 @@ class AgentSLA(gl.Contract):
             raise Exception('EXPECTED: appeal window still open')
         self._settle(t)
 
-    @gl.public.write
+    @gl.public.write.payable
     def file_appeal(self, task_id: int) -> str:
+        """Appellant posts the appeal bond (10% of escrow) as attached
+        value; it is held in custody until the second verdict routes it."""
         t = self._get(task_id)
         if t.status != 'ADJUDICATED':
             raise Exception(f'EXPECTED: task is {t.status}, not ADJUDICATED')
@@ -424,9 +473,11 @@ class AgentSLA(gl.Contract):
             raise Exception('EXPECTED: only a party to the case may appeal')
         if self._now_ms() > int(t.window_ends_ms):
             raise Exception('EXPECTED: appeal window closed')
+        appeal_bond = int(t.escrow) * APPEAL_BOND_PCT // 100
+        self._take_custody(appeal_bond, 'appeal bond')
         t.appellant = sender
         t.has_appeal = True
-        t.appeal_bond = u256(int(t.escrow) * APPEAL_BOND_PCT // 100)
+        t.appeal_bond = u256(appeal_bond)
 
         outcome = self._adjudicate(t)
         if 'err' in outcome:
@@ -446,12 +497,20 @@ class AgentSLA(gl.Contract):
             raise Exception(f'EXPECTED: task is {t.status}, not SOFT_ERROR')
         self._credit(t.buyer, int(t.escrow))
         self._credit(t.worker, int(t.bond))
-        t.settlement_json = json.dumps([
+        lines = [
             {'label': 'Escrow returned to buyer (neutral)', 'to': t.buyer.as_hex,
              'amount': str(int(t.escrow)), 'kind': 'neutral'},
             {'label': 'Bond returned to worker (neutral)', 'to': t.worker.as_hex,
              'amount': str(int(t.bond)), 'kind': 'neutral'},
-        ])
+        ]
+        # A soft error can land after an appeal was paid for (round-2
+        # non-convergence). That custody must go home, never strand.
+        if t.has_appeal and int(t.appeal_bond) > 0:
+            self._credit(t.appellant, int(t.appeal_bond))
+            lines.append(
+                {'label': 'Appeal bond returned to appellant (neutral)', 'to': t.appellant.as_hex,
+                 'amount': str(int(t.appeal_bond)), 'kind': 'neutral'})
+        t.settlement_json = json.dumps(lines)
         t.status = 'RESOLVED_NEUTRAL'
 
     @gl.public.write
@@ -467,6 +526,24 @@ class AgentSLA(gl.Contract):
              'amount': str(int(t.escrow)), 'kind': 'refund'},
         ])
         t.status = 'CANCELED'
+
+    @gl.public.write
+    def withdraw(self) -> str:
+        """Pull-payment exit: pay the caller's full withdrawable claim as
+        native GEN. State is zeroed before the transfer is emitted, so a
+        claim can never be paid twice. Returns the amount paid (wei)."""
+        who = gl.message.sender_address
+        claim = int(self.balances.get(who, u256(0)))
+        if claim <= 0:
+            raise Exception('EXPECTED: nothing to withdraw')
+        if claim > int(self.balance):
+            # Unreachable while the backing invariant holds; loud if it ever breaks.
+            raise Exception('INVARIANT: claim exceeds contract custody')
+        self.balances[who] = u256(0)
+        self.withdrawable_total = u256(int(self.withdrawable_total) - claim)
+        self.paid_out = u256(int(self.paid_out) + claim)
+        gl.get_contract_at(who).emit_transfer(value=u256(claim))
+        return str(claim)
 
     @gl.public.write
     def reclaim_expired(self, task_id: int) -> None:
@@ -542,6 +619,24 @@ class AgentSLA(gl.Contract):
     @gl.public.view
     def get_balance(self, agent: str) -> str:
         return str(int(self.balances.get(Address(agent), u256(0))))
+
+    @gl.public.view
+    def get_vault(self) -> str:
+        """Solvency report: real native custody vs. what the ledger owes.
+        `backed` must always be true. custody == locked + withdrawable at
+        quiescence; an outbound withdraw transfer still in flight shows as
+        a temporary surplus (never a deficit)."""
+        custody = int(self.balance)
+        locked = int(self.locked)
+        withdrawable = int(self.withdrawable_total)
+        return json.dumps({
+            'custody': str(custody),
+            'locked': str(locked),
+            'withdrawable': str(withdrawable),
+            'paid_out': str(int(self.paid_out)),
+            'surplus': str(custody - locked - withdrawable),
+            'backed': custody >= locked + withdrawable,
+        })
 
     @gl.public.view
     def get_params(self) -> str:

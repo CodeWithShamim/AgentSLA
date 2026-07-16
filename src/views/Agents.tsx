@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { DocketLine } from '../components/DocketLine'
+import { VaultPanel } from '../components/VaultPanel'
 import { shortAddr } from '../lib/format'
 import { useDocketOpen } from '../lib/hooks'
 import { useAgents } from '../lib/reads'
@@ -19,6 +20,9 @@ export function Agents() {
           floored at zero. Neutral resolutions write nothing.
         </p>
       </div>
+
+      <DocketLine label="Custody vault" />
+      <VaultPanel />
 
       <DocketLine label="Registered agents" />
       <div className="filing ruled">

@@ -1,12 +1,13 @@
 import { createClient } from 'genlayer-js'
 import { studionet } from 'genlayer-js/chains'
 import { transactionsStatusNumberToName } from 'genlayer-js/types'
-import { CONTRACT_ADDRESS } from '../config/chain'
+import { CHAIN, CONTRACT_ADDRESS, PARAMS, TREASURY } from '../config/chain'
 import { registerChainNameResolver } from './agents'
+import { pct } from './format'
 import { sessionAccounts, type Persona } from './session'
 import type {
   Address, AgentRecord, ReputationEvent, SettlementLine,
-  Task, TaskStatus, TxRecord, TxStep, VerdictKind,
+  Task, TaskStatus, TxRecord, TxStep, VaultReport, VerdictKind,
 } from './types'
 
 /** ChainBackend — the live StudioNet data layer.
@@ -134,6 +135,8 @@ class ChainBackend {
   private tasks: Task[] = []
   private repEvents: any[] = []
   private txs: TxRecord[] = []
+  private vault: VaultReport | null = null
+  private claims: Record<string, bigint> = {}
   /** taskId → 'deliver' | 'appeal' while that tx is in flight */
   private pendingByTask = new Map<number, string>()
   private privySigner: Signer | null = null
@@ -185,10 +188,15 @@ class ChainBackend {
     if (this.funded.has(address)) return
     this.funded.add(address)
     try {
-      await this.readClient.request({
-        method: 'sim_fundAccount',
-        params: [address as `0x${string}`, 100],
-      } as never)
+      // Escrows/bonds ride as real value now, so accounts need a real sim
+      // balance (wei scale). 1e22 wei = 10,000 GEN exceeds Number.MAX_SAFE_INTEGER,
+      // so the JSON-RPC body is built by hand to keep the integer literal exact.
+      const amount = (10_000n * 10n ** 18n).toString()
+      await fetch(CHAIN.rpcUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: `{"jsonrpc":"2.0","id":1,"method":"sim_fundAccount","params":["${address}",${amount}]}`,
+      })
     } catch { /* gasless network — funding is best-effort */ }
   }
 
@@ -216,14 +224,28 @@ class ChainBackend {
 
   private async poll() {
     try {
-      const [tasksJson, repJson] = await Promise.all([
+      const claimAddrs = [
+        ...new Set([this.actingAddress('buyer'), this.actingAddress('worker'), TREASURY]
+          .map((a) => a.toLowerCase())),
+      ]
+      const [tasksJson, repJson, vaultJson, ...claims] = await Promise.all([
         this.readClient.readContract({ address: this.address, functionName: 'get_tasks', args: [] }),
         this.readClient.readContract({ address: this.address, functionName: 'get_reputation', args: [] }),
+        this.readClient.readContract({ address: this.address, functionName: 'get_vault', args: [] }),
+        ...claimAddrs.map((a) =>
+          this.readClient.readContract({ address: this.address, functionName: 'get_balance', args: [a] })),
       ])
       this.tasks = (JSON.parse(String(tasksJson)) as any[])
         .map((raw) => mapTask(raw, this.pendingByTask.get(Number(raw.id))))
         .sort((a, b) => b.id - a.id)
       this.repEvents = JSON.parse(String(repJson))
+      const v = JSON.parse(String(vaultJson))
+      this.vault = {
+        custody: BigInt(v.custody), locked: BigInt(v.locked),
+        withdrawable: BigInt(v.withdrawable), paidOut: BigInt(v.paid_out),
+        surplus: BigInt(v.surplus), backed: Boolean(v.backed),
+      }
+      this.claims = Object.fromEntries(claimAddrs.map((a, i) => [a, BigInt(String(claims[i]))]))
       this.everSucceeded = true
       this.consecutiveFailures = 0
     } catch {
@@ -234,6 +256,8 @@ class ChainBackend {
 
   getTasks(): Task[] { return this.tasks }
   getTask(id: number): Task | undefined { return this.tasks.find((t) => t.id === id) }
+  getVault(): VaultReport | null { return this.vault }
+  getClaim(address: string): bigint { return this.claims[address.toLowerCase()] ?? 0n }
   getTx(hash: string): TxRecord | undefined { return this.txs.find((t) => t.hash === hash) }
   txStep(tx: TxRecord): TxStep { return tx.step }
 
@@ -288,13 +312,14 @@ class ChainBackend {
     label: string,
     taskId?: number,
     pendingKind?: string,
+    value: bigint = 0n,
   ): Promise<string> {
     const client = this.clientFor(side)
     const write = () => client.writeContract({
       address: this.address,
       functionName,
       args: args as never[],
-      value: 0n,
+      value,
     })
     let hash: string
     try {
@@ -359,16 +384,20 @@ class ChainBackend {
     title: string; slaText: string; criteria: string[]
     deadline: number; escrow: bigint
   }): Promise<{ hash: string }> {
+    // The escrow rides as the transaction value — real GEN into custody.
     return {
       hash: await this.submitTx('buyer', 'create_task', [
         input.title, input.slaText, JSON.stringify(input.criteria),
-        input.deadline, input.escrow,
-      ], `create_task — escrow ${input.escrow}`),
+        input.deadline,
+      ], `create_task — escrow ${input.escrow}`, undefined, undefined, input.escrow),
     }
   }
 
   acceptTask(id: number): Promise<string> {
-    return this.submitTx('worker', 'accept_task', [id], 'accept_task — stake bond', id)
+    const bond = this.getTask(id)?.bond
+    if (bond === undefined) return Promise.reject(new Error(`task ${id} not loaded`))
+    return this.submitTx('worker', 'accept_task', [id],
+      'accept_task — stake bond', id, undefined, bond)
   }
 
   submitDelivery(id: number, evidence: { url?: string; inline?: string }): Promise<string> {
@@ -378,9 +407,16 @@ class ChainBackend {
   }
 
   fileAppeal(id: number, appellant: Address): Promise<string> {
+    const task = this.getTask(id)
+    if (!task) return Promise.reject(new Error(`task ${id} not loaded`))
     const side: Persona =
-      appellant.toLowerCase() === (this.getTask(id)?.worker ?? '').toLowerCase() ? 'worker' : 'buyer'
-    return this.submitTx(side, 'file_appeal', [id], 'file_appeal — post bond', id, 'appeal')
+      appellant.toLowerCase() === (task.worker ?? '').toLowerCase() ? 'worker' : 'buyer'
+    return this.submitTx(side, 'file_appeal', [id],
+      'file_appeal — post bond', id, 'appeal', pct(task.escrow, PARAMS.appealBondPct))
+  }
+
+  withdraw(side: Persona): Promise<string> {
+    return this.submitTx(side, 'withdraw', [], 'withdraw — claim native GEN')
   }
 
   finalize(id: number): Promise<string> {

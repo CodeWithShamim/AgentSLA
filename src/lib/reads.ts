@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from 'react'
+import { DEFAULT_WORKER, YOU } from './agents'
 import { chainBackend } from './chain'
 import { store } from './store'
-import type { Address, AgentRecord, Task, TxRecord, TxStep } from './types'
+import type { Address, AgentRecord, Task, TxRecord, TxStep, VaultReport } from './types'
 
 /** Read layer — view calls only, never a wallet prompt (FR-7.3).
  *
@@ -76,6 +77,18 @@ export function useTx(hash: string | null): { tx: TxRecord; step: TxStep } | nul
   return tx ? { tx, step: backend.txStep(tx) } : null
 }
 
+/** Custody solvency report (contract get_vault; derived in simulation). */
+export function useVault(): VaultReport | null {
+  useSyncExternalStore(subscribe, () => version)
+  return onChain() ? chainBackend!.getVault() : store.getVault()
+}
+
+/** Withdrawable claim for an address (pull-payment vault balance). */
+export function useClaim(address: Address | string): bigint {
+  useSyncExternalStore(subscribe, () => version)
+  return onChain() ? chainBackend!.getClaim(String(address)) : store.getClaim(String(address))
+}
+
 export function useNow(): number {
   return useSyncExternalStore(subscribe, () => Math.floor(Date.now() / 1000)) * 1000
 }
@@ -83,4 +96,11 @@ export function useNow(): number {
 /** Resolves display names for on-chain addresses (falls back to sim directory). */
 export function liveAgentName(address: string): string | null {
   return onChain() ? chainBackend!.nameOf(address) : null
+}
+
+/** The address currently signing for a side (wallet/persona on chain,
+ *  fixed personas in simulation). */
+export function useActingAddress(side: 'buyer' | 'worker'): Address {
+  useSyncExternalStore(subscribe, () => version)
+  return onChain() ? chainBackend!.actingAddress(side) : side === 'buyer' ? YOU : DEFAULT_WORKER
 }

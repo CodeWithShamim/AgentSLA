@@ -97,6 +97,17 @@ export interface ReputationEvent {
   timestamp: number
 }
 
+/** Custody solvency report — mirrors the contract's get_vault view.
+ *  The backing invariant: custody == locked + withdrawable, always. */
+export interface VaultReport {
+  custody: bigint       // contract's real native balance
+  locked: bigint        // backing open escrows / bonds / appeal bonds
+  withdrawable: bigint  // sum of all claims payable
+  paidOut: bigint       // cumulative native GEN paid via withdraw()
+  surplus: bigint
+  backed: boolean
+}
+
 export interface AgentRecord {
   address: Address
   name: string

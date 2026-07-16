@@ -11,6 +11,12 @@ semantics the contract relies on:
 - `gl.message.sender_address` / `gl.message_raw['datetime']` are settable,
   so access control and time-gated paths (deadline, appeal window) are
   drivable.
+- Native asset semantics are faithful: `gl.message.value` on payable calls
+  credits the contract's native balance (`self.balance`), a failed call
+  refunds it (revert semantics), and
+  `gl.get_contract_at(addr).emit_transfer(value=...)` debits it and records
+  the outgoing native transfer — so asset invariants (custody backing,
+  conservation, no double-payout) are testable end to end.
 """
 import importlib.util
 import json
@@ -82,6 +88,30 @@ class NonConvergence(Exception):
     """Validators disagreed — tx-level UNDETERMINED."""
 
 
+# Native-token ledger shared by the mock: the contract's balance plus every
+# outgoing emit_transfer. Reset per Env.
+_NATIVE = {'contract': 0}
+_TRANSFERS = []  # (to_hex, amount)
+
+
+class _ContractAt:
+    def __init__(self, addr):
+        self.addr = addr
+
+    def emit_transfer(self, value):
+        amount = int(value)
+        if amount > _NATIVE['contract']:
+            raise RuntimeError('native transfer exceeds contract balance')
+        _NATIVE['contract'] -= amount
+        _TRANSFERS.append((self.addr.as_hex, amount))
+
+
+class _ContractBase:
+    @property
+    def balance(self):
+        return u256(_NATIVE['contract'])
+
+
 class _VM(types.SimpleNamespace):
     Return = Return
 
@@ -134,12 +164,14 @@ class _Public:
 
 def _build_genlayer_module():
     gl = types.SimpleNamespace()
-    gl.Contract = type('Contract', (), {})
+    gl.Contract = _ContractBase
     gl.public = _Public
     gl.vm = _VM()
     gl.nondet = _Nondet()
-    gl.message = types.SimpleNamespace(sender_address=Address('0x' + '00' * 20))
+    gl.message = types.SimpleNamespace(
+        sender_address=Address('0x' + '00' * 20), value=u256(0))
     gl.message_raw = {'datetime': '2026-07-04T12:00:00Z'}
+    gl.get_contract_at = _ContractAt
 
     mod = types.ModuleType('genlayer')
     mod.gl = gl
@@ -188,6 +220,8 @@ class Env:
         c.balances = TreeMap()
         c.rep_events_json = DynArray()
         self.gl = _genlayer.gl
+        _NATIVE['contract'] = 0
+        _TRANSFERS.clear()
         self.set_time(T0)
         self.set_sender(BUYER)
         c.__init__(appeal_window_ms=120_000, min_escrow=1 * GEN)
@@ -199,6 +233,46 @@ class Env:
 
     def set_time(self, ms):
         self.gl.message_raw['datetime'] = _iso(ms)
+
+    # --- native asset controls ---
+
+    def pay(self, sender, value, fn, *args):
+        """Invoke a payable method carrying `value` native wei. Mirrors
+        chain semantics: custody lands with the call, a raised exception
+        reverts the transfer."""
+        self.set_sender(sender)
+        self.gl.message.value = u256(int(value))
+        _NATIVE['contract'] += int(value)
+        try:
+            return fn(*args)
+        except BaseException:
+            _NATIVE['contract'] -= int(value)
+            raise
+        finally:
+            self.gl.message.value = u256(0)
+
+    @property
+    def custody(self):
+        """The contract's real native balance."""
+        return _NATIVE['contract']
+
+    @property
+    def transfers(self):
+        """Every outgoing native transfer as (to_hex, amount)."""
+        return list(_TRANSFERS)
+
+    def native_received(self, addr):
+        return sum(a for to, a in _TRANSFERS if to == addr.as_hex)
+
+    def vault(self):
+        return json.loads(self.contract.get_vault())
+
+    def assert_backed(self):
+        """The custody invariant: real balance exactly backs the ledger."""
+        v = self.vault()
+        assert v['backed'] is True
+        assert int(v['custody']) == int(v['locked']) + int(v['withdrawable']), v
+        assert int(v['custody']) == self.custody
 
     def set_llm(self, fn):
         """fn(prompt) -> str. Reset per test."""
@@ -229,19 +303,28 @@ class Env:
     def set_web(self, fn):
         self.gl.nondet.web.render_impl = fn
 
-    # --- protocol shortcuts ---
+    # --- protocol shortcuts (escrow/bond/appeal bond ride as real value) ---
     def create(self, criteria=('crit a', 'crit b', 'crit c'),
                escrow=10 * GEN, deadline_ms=None, title='Task', sla='Do the thing.'):
-        self.set_sender(BUYER)
-        return self.contract.create_task(
+        return self.pay(
+            BUYER, escrow, self.contract.create_task,
             title, sla, json.dumps(list(criteria)),
             deadline_ms if deadline_ms is not None else T0 + 86_400_000,
-            escrow,
         )
 
-    def accept(self, tid, sender=WORKER):
+    def accept(self, tid, sender=WORKER, bond=None):
+        if bond is None:
+            bond = int(self.task(tid)['bond'])
+        self.pay(sender, bond, self.contract.accept_task, tid)
+
+    def appeal(self, tid, sender=WORKER, bond=None):
+        if bond is None:
+            bond = int(self.task(tid)['escrow']) * 10 // 100
+        return self.pay(sender, bond, self.contract.file_appeal, tid)
+
+    def withdraw(self, sender):
         self.set_sender(sender)
-        self.contract.accept_task(tid)
+        return int(self.contract.withdraw())
 
     def deliver(self, tid, inline='the deliverable', url='', sender=WORKER):
         self.set_sender(sender)

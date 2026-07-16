@@ -4,7 +4,7 @@ import { parseGEN, pct } from './format'
 import { adjudicate } from './judge'
 import type {
   Address, AgentRecord, Appeal, ReputationEvent, SettlementLine,
-  Task, TaskStatus, TxRecord, TxStep, Verdict, VerdictKind,
+  Task, TaskStatus, TxRecord, TxStep, VaultReport, Verdict, VerdictKind,
 } from './types'
 
 /** Local protocol simulation.
@@ -15,7 +15,7 @@ import type {
  *  derived from timestamps (reload-safe), not dangling timers.
  */
 
-const LS_KEY = 'agentsla-sim-v2'
+const LS_KEY = 'agentsla-sim-v3'
 const ADJUDICATION_MS = 7_000     // leader + validators deliberate
 const TX_PENDING_MS = 500
 const TX_ACCEPTED_MS = 1_600
@@ -25,6 +25,9 @@ interface State {
   tasks: Task[]
   txs: TxRecord[]
   nextId: number
+  /** withdrawable claims ledger — mirrors the contract's pull-payment vault */
+  claims: Record<string, bigint>
+  paidOut: bigint
 }
 
 type Listener = () => void
@@ -326,7 +329,15 @@ function seed(): State {
     })
   }
 
-  return { tasks, txs: [], nextId: 10 }
+  // Seeded settlements become withdrawable claims, exactly as on-chain.
+  const claims: Record<string, bigint> = {}
+  for (const t of tasks) {
+    for (const line of t.settlement ?? []) {
+      claims[line.to.toLowerCase()] = (claims[line.to.toLowerCase()] ?? 0n) + line.amount
+    }
+  }
+
+  return { tasks, txs: [], nextId: 10, claims, paidOut: 0n }
 }
 
 // ---------- store ----------
@@ -435,6 +446,7 @@ class SimStore {
       // appeal window closes → settle, finalize
       if (t.status === 'ADJUDICATED' && t.verdict && now >= t.verdict.appealWindowEnds) {
         t.settlement = computeSettlement(t, t.verdict)
+        this.applyClaims(t.settlement)
         t.status = 'FINAL'
         changed = true
       }
@@ -480,6 +492,7 @@ class SimStore {
       t.appeal.outcome = improved ? 'OVERTURNED' : 'UPHELD'
       t.verdict = verdict
       t.settlement = computeSettlement(t, verdict)
+      this.applyClaims(t.settlement)
       t.status = 'FINAL'   // second verdict is final (FR-5.3)
     } else {
       t.verdict = verdict
@@ -562,6 +575,14 @@ class SimStore {
       { label: 'Escrow returned to buyer (neutral)', to: t.buyer, amount: t.escrow, kind: 'neutral' },
       { label: 'Bond returned to worker (neutral)', to: t.worker!, amount: t.bond, kind: 'neutral' },
     ]
+    // A paid appeal bond must never strand when the case soft-errors.
+    if (t.appeal) {
+      t.settlement.push({
+        label: 'Appeal bond returned to appellant (neutral)',
+        to: t.appeal.appellant, amount: t.appeal.bond, kind: 'neutral',
+      })
+    }
+    this.applyClaims(t.settlement)
     t.status = 'RESOLVED_NEUTRAL'
     const tx = this.openTx('resolve_neutral', id)
     this.notify()
@@ -572,6 +593,7 @@ class SimStore {
     const t = this.mustGet(id, 'OPEN')
     t.status = 'CANCELED'
     t.settlement = [{ label: 'Escrow refunded to buyer', to: t.buyer, amount: t.escrow, kind: 'refund' }]
+    this.applyClaims(t.settlement)
     const tx = this.openTx('cancel_task — reclaim escrow', id)
     this.notify()
     return tx.hash
@@ -583,8 +605,58 @@ class SimStore {
       { label: 'Escrow refunded to buyer', to: t.buyer, amount: t.escrow, kind: 'refund' },
       { label: 'Full bond slashed to buyer — deadline miss', to: t.buyer, amount: t.bond, kind: 'slash' },
     ]
+    this.applyClaims(t.settlement)
     t.status = 'FINAL'
     const tx = this.openTx('reclaim — deadline miss', id)
+    this.notify()
+    return tx.hash
+  }
+
+  private applyClaims(lines: SettlementLine[]) {
+    for (const line of lines) {
+      const k = line.to.toLowerCase()
+      this.state.claims[k] = (this.state.claims[k] ?? 0n) + line.amount
+    }
+  }
+
+  /** Stakes still held against unsettled cases (custody backing). */
+  private lockedTotal(): bigint {
+    let locked = 0n
+    for (const t of this.state.tasks) {
+      if (t.settlement) continue                    // settled → moved to claims
+      if (t.status === 'CANCELED' || t.status === 'FINAL' || t.status === 'RESOLVED_NEUTRAL') continue
+      locked += t.escrow
+      if (t.worker) locked += t.bond
+      if (t.appeal && !t.appeal.outcome) locked += t.appeal.bond
+      if (t.appeal && t.appeal.outcome && t.status === 'SOFT_ERROR') locked += t.appeal.bond
+    }
+    return locked
+  }
+
+  getVault(): VaultReport {
+    const locked = this.lockedTotal()
+    const withdrawable = Object.values(this.state.claims).reduce((s, v) => s + v, 0n)
+    return {
+      custody: locked + withdrawable,
+      locked,
+      withdrawable,
+      paidOut: this.state.paidOut,
+      surplus: 0n,
+      backed: true,
+    }
+  }
+
+  getClaim(address: string): bigint {
+    return this.state.claims[address.toLowerCase()] ?? 0n
+  }
+
+  withdraw(address: Address): string {
+    const k = address.toLowerCase()
+    const claim = this.state.claims[k] ?? 0n
+    if (claim <= 0n) throw new Error('nothing to withdraw')
+    this.state.claims[k] = 0n
+    this.state.paidOut += claim
+    const tx = this.openTx('withdraw — claim native GEN')
     this.notify()
     return tx.hash
   }

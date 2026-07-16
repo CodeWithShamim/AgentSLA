@@ -78,6 +78,24 @@ check(
   'untrusted-data delimiters in prompt (FR-2.5)',
   code.includes('UNTRUSTED DELIVERABLE'),
 )
+// Asset custody gates (FR-3.0): stakes are payable value, payouts are
+// native transfers, and the ledger is backed by contract balance.
+check(
+  'payable custody on all three stake intakes',
+  (code.match(/@gl\.public\.write\.payable/g) ?? []).length === 3
+    && /payable\s+def create_task/.test(code.replace(/\n\s+/g, ' '))
+    && /payable\s+def accept_task/.test(code.replace(/\n\s+/g, ' '))
+    && /payable\s+def file_appeal/.test(code.replace(/\n\s+/g, ' ')),
+)
+check(
+  'native withdrawal path (emit_transfer)',
+  code.includes('emit_transfer(value='),
+)
+check(
+  'backed-accounting invariant fields',
+  ['self.locked', 'self.withdrawable_total', 'self.paid_out', 'gl.message.value']
+    .every((s) => code.includes(s)),
+)
 
 // 3. Live GenVM: compile + schema extraction on the Studio node
 let schema = null
@@ -97,10 +115,17 @@ if (schema) {
   const expect = {
     create_task: false, accept_task: false, submit_delivery: false,
     finalize: false, file_appeal: false, resolve_neutral: false,
-    cancel_task: false, reclaim_expired: false,
+    cancel_task: false, reclaim_expired: false, withdraw: false,
     get_tasks: true, get_task: true, get_reputation: true,
-    get_score: true, get_balance: true, get_params: true,
+    get_score: true, get_balance: true, get_params: true, get_vault: true,
   }
+  const payableExpected = ['create_task', 'accept_task', 'file_appeal']
+  const notPayable = payableExpected.filter((n) => methods[n] && methods[n].payable !== true)
+  check(
+    'payable methods declared in schema',
+    notPayable.length === 0,
+    notPayable.length ? `not payable in schema: ${notPayable.join(', ')}` : payableExpected.join(', '),
+  )
   const missing = Object.entries(expect).filter(
     ([name, readonly]) => !methods[name] || methods[name].readonly !== readonly,
   )
