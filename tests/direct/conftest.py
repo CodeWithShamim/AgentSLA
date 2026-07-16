@@ -317,8 +317,30 @@ class Env:
 
     def accept(self, tid, sender=WORKER, bond=None):
         if bond is None:
-            bond = int(self.task(tid)['bond'])
+            # Quote the exact reputation-gated stake, as real agents would.
+            bond = int(self.contract.get_required_bond(tid, sender.as_hex))
         self.pay(sender, bond, self.contract.accept_task, tid)
+
+    def bid(self, tid, price, sender=WORKER):
+        self.set_sender(sender)
+        self.contract.place_bid(tid, price)
+
+    def select(self, tid, worker=WORKER):
+        self.set_sender(BUYER)
+        self.contract.select_bid(tid, worker.as_hex)
+
+    def create_group(self, milestones, title='Program', sla='Do the staged thing.',
+                     deadline_ms=None):
+        """milestones: list of (title, criteria, amount)."""
+        total = sum(a for _, _, a in milestones)
+        payload = json.dumps([
+            {'title': t, 'criteria': list(c), 'amount': a} for t, c, a in milestones
+        ])
+        return self.pay(
+            BUYER, total, self.contract.create_task_group,
+            title, sla, payload,
+            deadline_ms if deadline_ms is not None else T0 + 86_400_000,
+        )
 
     def appeal(self, tid, sender=WORKER, bond=None):
         if bond is None:

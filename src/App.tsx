@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { NavLink, Route, Routes, Link, useLocation } from 'react-router-dom'
 import { destroyLenis, getLenis, initLenis, playRouteFade } from './design/motion'
 import { CHAIN, CONTRACT_ADDRESS, explorerAddressUrl } from './config/chain'
-import { useMode } from './lib/reads'
+import { useChainHealth, useMode } from './lib/reads'
 import { shortAddr } from './lib/format'
 import { writes } from './lib/writes'
 import { WalletBoundary, WalletControls } from './lib/wallet'
@@ -32,6 +32,7 @@ function RouteFade({ children }: { children: React.ReactNode }) {
 
 function Shell() {
   const mode = useMode()
+  const health = useChainHealth()
   const loc = useLocation()
   const [menuOpen, setMenuOpen] = useState(false)
   useEffect(() => {
@@ -91,11 +92,23 @@ function Shell() {
             <ThemeToggle />
             <span
               className="sim-badge t-data"
-              title={mode === 'studionet'
-                ? `Live on GenLayer Studio Network (chain ${CHAIN.id}) — contract ${CONTRACT_ADDRESS}`
-                : 'Contract unreachable — the protocol lifecycle is simulated locally with identical states and math.'}
+              title={
+                mode !== 'studionet'
+                  ? 'No deployment configured — development build running the local protocol simulation.'
+                  : health === 'ok'
+                    ? `Live on GenLayer Studio Network (chain ${CHAIN.id}) — contract ${CONTRACT_ADDRESS}`
+                    : health === 'connecting'
+                      ? `Connecting to GenLayer Studio Network (chain ${CHAIN.id})…`
+                      : `RPC not responding (chain ${CHAIN.id}) — transactions cannot be sent until the connection returns. Nothing is simulated.`
+              }
             >
-              {mode === 'studionet' ? `STUDIO · ${CHAIN.id}` : 'SIMULATION'}
+              {mode !== 'studionet'
+                ? 'SIMULATION'
+                : health === 'ok'
+                  ? `STUDIO · ${CHAIN.id}`
+                  : health === 'connecting'
+                    ? 'CONNECTING…'
+                    : 'RPC OFFLINE'}
             </span>
           </nav>
         </div>

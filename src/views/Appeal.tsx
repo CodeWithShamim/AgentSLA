@@ -8,7 +8,8 @@ import { TxLadder } from '../components/TxLadder'
 import { agentName } from '../lib/agents'
 import { caseNo, fmtCountdown, fmtGEN, pct } from '../lib/format'
 import { useDocketOpen } from '../lib/hooks'
-import { useNow, useTask } from '../lib/reads'
+import { useNow, useTask, useWalletGate } from '../lib/reads'
+import { ConnectWalletButton } from '../lib/wallet'
 import { writes } from '../lib/writes'
 import type { Address } from '../lib/types'
 
@@ -25,6 +26,7 @@ export function Appeal() {
   const [filed, setFiled] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const gate = useWalletGate()
 
   if (!task || !task.verdict || task.status !== 'ADJUDICATED') {
     return (
@@ -104,10 +106,14 @@ export function Appeal() {
       <div style={{ marginTop: 'var(--s-5)', display: 'grid', gap: 'var(--s-4)' }}>
         {err && <p className="error t-small">{err}</p>}
         {!filed && (
-          <div style={{ display: 'flex', gap: 'var(--s-3)' }}>
-            <button className="btn btn-primary" onClick={() => void file()} disabled={busy}>
-              {busy ? 'Signing…' : `File appeal (${fmtGEN(bond)})`}
-            </button>
+          <div style={{ display: 'flex', gap: 'var(--s-3)', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            {party === 'buyer' && gate.required && !gate.connected ? (
+              <ConnectWalletButton label={`Connect wallet to post the ${fmtGEN(bond)} bond`} />
+            ) : (
+              <button className="btn btn-primary" onClick={() => void file()} disabled={busy}>
+                {busy ? 'Signing…' : `File appeal (${fmtGEN(bond)})`}
+              </button>
+            )}
             <Link className="btn btn-secondary" to={`/case/${task.id}`}>Return to case</Link>
           </div>
         )}

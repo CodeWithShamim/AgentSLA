@@ -50,6 +50,12 @@ MAX_URL_CHARS = 500
 MAX_INLINE_CHARS = 20000
 MAX_DEADLINE_HORIZON_MS = 366 * 86_400_000   # ≤ ~1 year out
 MAX_FETCH_RETRIES = 2    # EXTERNAL/TRANSIENT re-deliveries before neutral path
+MAX_BIDS = 20            # bid book cap per task (FR-8)
+MAX_MILESTONES = 5       # milestone group size cap (FR-9)
+
+# Reputation-gated bonds (FR-10): proven workers stake less. Score is the
+# ERC-8004-style rolling sum (floored at 0) already recorded on-chain.
+BOND_TIERS = ((10, 10), (5, 15), (0, 20))    # (min_score, bond_pct)
 
 VERDICTS = ('MET', 'PARTIAL', 'NOT_MET')
 
@@ -90,6 +96,12 @@ class Task:
     error_detail: str
     settlement_json: str      # JSON [{label, to, amount, kind}]
     fetch_retries: u256       # EXTERNAL/TRANSIENT delivery failures so far
+    bids_json: str            # JSON [{worker, price, ts}] — open bid book (FR-8)
+    selected_worker: Address  # buyer-selected bidder (zero = open acceptance)
+    has_selection: bool
+    group_id: u256            # milestone group (0 = standalone task, FR-9)
+    group_index: u256         # 0-based position within the group
+    group_size: u256
 
 
 # ----------------------------------------------------------------------
@@ -186,6 +198,7 @@ def _judge_once(sla_text: str, criteria: list, evidence: str) -> dict:
 class AgentSLA(gl.Contract):
     tasks: TreeMap[u256, Task]
     next_id: u256
+    next_group: u256
     appeal_window_ms: u256
     min_escrow: u256
     treasury: Address
@@ -197,6 +210,7 @@ class AgentSLA(gl.Contract):
 
     def __init__(self, appeal_window_ms: int, min_escrow: int):
         self.next_id = 1
+        self.next_group = 1
         self.appeal_window_ms = appeal_window_ms
         self.min_escrow = min_escrow
         # Slash revenue accrues to the deployer/operator as a withdrawable
@@ -242,6 +256,64 @@ class AgentSLA(gl.Contract):
         self.locked = u256(int(self.locked) - amount)
         self.withdrawable_total = u256(int(self.withdrawable_total) + amount)
         self.balances[who] = u256(int(self.balances.get(who, u256(0))) + amount)
+
+    def _score_of(self, worker: Address) -> int:
+        """ERC-8004-style rolling score, floored at 0 (FR-6.3)."""
+        target = worker.as_hex
+        total = 0
+        for e in self.rep_events_json:
+            ev = json.loads(e)
+            if ev['agent'] == target and ev['role'] == 'worker':
+                total += int(ev['delta'])
+        return max(0, total)
+
+    def _bond_pct_for(self, worker: Address) -> int:
+        """Reputation-gated bonds (FR-10): a track record of kept SLAs is
+        collateral. Tiers are deterministic from on-chain reputation."""
+        score = self._score_of(worker)
+        for min_score, pct in BOND_TIERS:
+            if score >= min_score:
+                return pct
+        return BOND_PCT
+
+    def _validated_criteria(self, criteria_json: str) -> list:
+        criteria = json.loads(criteria_json)
+        if not isinstance(criteria, list) or not (1 <= len(criteria) <= 10):
+            raise Exception('EXPECTED: criteria must be a JSON list of 1-10 statements')
+        if any(not str(c).strip() for c in criteria):
+            raise Exception('EXPECTED: empty criterion')
+        if any(len(str(c)) > MAX_CRITERION_CHARS for c in criteria):
+            raise Exception(f'EXPECTED: criterion exceeds {MAX_CRITERION_CHARS} chars')
+        return [str(c) for c in criteria]
+
+    def _new_task(self, title: str, sla_text: str, criteria: list, deadline_ms: int,
+                  escrow: int, group: tuple) -> int:
+        """Shared constructor for standalone tasks and milestone-group
+        members. Caller has already validated inputs and taken custody."""
+        task_id = int(self.next_id)
+        self.next_id = u256(task_id + 1)
+        group_id, group_index, group_size = group
+        self.tasks[u256(task_id)] = Task(
+            id=u256(task_id), buyer=gl.message.sender_address,
+            worker=Address(b'\x00' * 20), has_worker=False,
+            title=title, sla_text=sla_text, criteria_json=json.dumps(criteria),
+            deadline_ms=u256(deadline_ms), escrow=u256(escrow),
+            bond=u256(int(escrow) * BOND_PCT // 100),
+            created_ms=u256(self._now_ms()), status='OPEN',
+            evidence_url='', evidence_inline='', evidence_ms=u256(0),
+            verdict='', results_json='[]', confidence='', judged_ms=u256(0),
+            window_ends_ms=u256(0), round=u256(0), injection=False,
+            first_verdict='', first_results_json='[]',
+            appellant=Address(b'\x00' * 20), has_appeal=False,
+            appeal_bond=u256(0), appeal_outcome='',
+            error_tag='', error_detail='', settlement_json='[]',
+            fetch_retries=u256(0),
+            bids_json='[]', selected_worker=Address(b'\x00' * 20),
+            has_selection=False,
+            group_id=u256(group_id), group_index=u256(group_index),
+            group_size=u256(group_size),
+        )
+        return task_id
 
     def _rep(self, agent: Address, task_id: int, role: str, verdict: str, delta: int) -> None:
         self.rep_events_json.append(json.dumps({
@@ -381,21 +453,7 @@ class AgentSLA(gl.Contract):
     # public writes (FR-1, FR-2, FR-4, FR-5)
     # ------------------------------------------------------------------
 
-    @gl.public.write.payable
-    def create_task(self, title: str, sla_text: str, criteria_json: str,
-                    deadline_ms: int) -> int:
-        """The escrow IS the attached value: gl.message.value moves into
-        contract custody here — no declared-but-unfunded escrows exist."""
-        criteria = json.loads(criteria_json)
-        if not isinstance(criteria, list) or not (1 <= len(criteria) <= 10):
-            raise Exception('EXPECTED: criteria must be a JSON list of 1-10 statements')
-        if any(not str(c).strip() for c in criteria):
-            raise Exception('EXPECTED: empty criterion')
-        if any(len(str(c)) > MAX_CRITERION_CHARS for c in criteria):
-            raise Exception(f'EXPECTED: criterion exceeds {MAX_CRITERION_CHARS} chars')
-        escrow = int(gl.message.value)
-        if escrow < int(self.min_escrow):
-            raise Exception('EXPECTED: escrow below minimum')
+    def _check_task_shape(self, title: str, sla_text: str, deadline_ms: int) -> None:
         if not title.strip() or not sla_text.strip():
             raise Exception('EXPECTED: title and SLA text are required')
         if len(title) > MAX_TITLE_CHARS or len(sla_text) > MAX_SLA_CHARS:
@@ -405,42 +463,124 @@ class AgentSLA(gl.Contract):
             raise Exception('EXPECTED: deadline must be in the future')
         if int(deadline_ms) > now + MAX_DEADLINE_HORIZON_MS:
             raise Exception('EXPECTED: deadline too far out (max 1 year)')
-        self.locked = u256(int(self.locked) + escrow)
-
-        task_id = int(self.next_id)
-        self.next_id = u256(task_id + 1)
-        self.tasks[u256(task_id)] = Task(
-            id=u256(task_id), buyer=gl.message.sender_address,
-            worker=Address(b'\x00' * 20), has_worker=False,
-            title=title, sla_text=sla_text, criteria_json=json.dumps([str(c) for c in criteria]),
-            deadline_ms=u256(deadline_ms), escrow=u256(escrow),
-            bond=u256(int(escrow) * BOND_PCT // 100),
-            created_ms=u256(self._now_ms()), status='OPEN',
-            evidence_url='', evidence_inline='', evidence_ms=u256(0),
-            verdict='', results_json='[]', confidence='', judged_ms=u256(0),
-            window_ends_ms=u256(0), round=u256(0), injection=False,
-            first_verdict='', first_results_json='[]',
-            appellant=Address(b'\x00' * 20), has_appeal=False,
-            appeal_bond=u256(0), appeal_outcome='',
-            error_tag='', error_detail='', settlement_json='[]',
-            fetch_retries=u256(0),
-        )
-        return task_id
 
     @gl.public.write.payable
-    def accept_task(self, task_id: int) -> None:
-        """Worker stakes the performance bond (20% of escrow) as real
-        attached value — acceptance without funded skin-in-the-game
-        is impossible."""
+    def create_task(self, title: str, sla_text: str, criteria_json: str,
+                    deadline_ms: int) -> int:
+        """The escrow IS the attached value: gl.message.value moves into
+        contract custody here — no declared-but-unfunded escrows exist."""
+        criteria = self._validated_criteria(criteria_json)
+        escrow = int(gl.message.value)
+        if escrow < int(self.min_escrow):
+            raise Exception('EXPECTED: escrow below minimum')
+        self._check_task_shape(title, sla_text, deadline_ms)
+        self.locked = u256(int(self.locked) + escrow)
+        return self._new_task(title, sla_text, criteria, deadline_ms, escrow, (0, 0, 0))
+
+    @gl.public.write.payable
+    def create_task_group(self, title: str, sla_text: str, milestones_json: str,
+                          deadline_ms: int) -> int:
+        """Milestone escrow (FR-9): one SLA split into 2-{MAX_MILESTONES}
+        staged cases, each with its own criteria, escrow slice, bond,
+        adjudication, appeal window, and payout — the attached value must
+        equal the sum of the slices, so every milestone is fully funded at
+        commitment. Reuses the verified single-task machinery per stage;
+        returns the group id."""
+        milestones = json.loads(milestones_json)
+        if not isinstance(milestones, list) or not (2 <= len(milestones) <= MAX_MILESTONES):
+            raise Exception(f'EXPECTED: milestones must be a JSON list of 2-{MAX_MILESTONES} stages')
+        self._check_task_shape(title, sla_text, deadline_ms)
+        parsed = []
+        total = 0
+        for m in milestones:
+            if not isinstance(m, dict) or not str(m.get('title', '')).strip():
+                raise Exception('EXPECTED: each milestone needs a title')
+            if len(str(m['title'])) > MAX_TITLE_CHARS:
+                raise Exception('EXPECTED: milestone title exceeds size limit')
+            criteria = self._validated_criteria(json.dumps(m.get('criteria', [])))
+            amount = int(m.get('amount', 0))
+            if amount < int(self.min_escrow):
+                raise Exception('EXPECTED: milestone escrow below minimum')
+            parsed.append((str(m['title']), criteria, amount))
+            total += amount
+        if int(gl.message.value) != total:
+            raise Exception(
+                f'EXPECTED: milestone amounts must sum to the attached value '
+                f'({total} != {int(gl.message.value)})')
+        self.locked = u256(int(self.locked) + total)
+
+        group_id = int(self.next_group)
+        self.next_group = u256(group_id + 1)
+        size = len(parsed)
+        for i, (m_title, criteria, amount) in enumerate(parsed):
+            self._new_task(f'{m_title} — {title}', sla_text, criteria,
+                           deadline_ms, amount, (group_id, i, size))
+        return group_id
+
+    @gl.public.write
+    def place_bid(self, task_id: int, price: int) -> None:
+        """Competitive bidding (FR-8): a worker offers to do the task for
+        `price` ≤ escrow. Bids are free offers (no stake) — the bond is
+        staked at acceptance; one live bid per worker, book capped."""
         t = self._get(task_id)
         if t.status != 'OPEN':
             raise Exception(f'EXPECTED: task is {t.status}, not OPEN')
-        if gl.message.sender_address == t.buyer:
+        sender = gl.message.sender_address
+        if sender == t.buyer:
+            raise Exception('EXPECTED: buyer cannot bid on own task')
+        price = int(price)
+        if price < int(self.min_escrow) or price > int(t.escrow):
+            raise Exception('EXPECTED: bid must be between the minimum escrow and the task escrow')
+        bids = [b for b in json.loads(t.bids_json) if b['worker'] != sender.as_hex]
+        if len(bids) >= MAX_BIDS:
+            raise Exception('EXPECTED: bid book full')
+        bids.append({'worker': sender.as_hex, 'price': str(price), 'ts': self._now_ms()})
+        t.bids_json = json.dumps(bids)
+
+    @gl.public.write
+    def select_bid(self, task_id: int, worker: str) -> None:
+        """Buyer selects a bid: the escrow surplus over the bid price is
+        released back to the buyer immediately (real custody move), and
+        acceptance locks to the selected bidder at the bid price."""
+        t = self._get(task_id)
+        if t.status != 'OPEN':
+            raise Exception(f'EXPECTED: task is {t.status}, not OPEN')
+        if gl.message.sender_address != t.buyer:
+            raise Exception('EXPECTED: only the buyer may select a bid')
+        target = Address(worker)
+        bid = next((b for b in json.loads(t.bids_json) if b['worker'] == target.as_hex), None)
+        if bid is None:
+            raise Exception('EXPECTED: no bid from that worker')
+        price = int(bid['price'])
+        surplus = int(t.escrow) - price
+        if surplus > 0:
+            self._credit(t.buyer, surplus)     # locked → withdrawable, backed
+        t.escrow = u256(price)
+        t.bond = u256(price * BOND_PCT // 100)
+        t.selected_worker = target
+        t.has_selection = True
+
+    @gl.public.write.payable
+    def accept_task(self, task_id: int) -> None:
+        """Worker stakes the performance bond as real attached value —
+        acceptance without funded skin-in-the-game is impossible. The
+        bond percentage is reputation-gated (FR-10): use
+        get_required_bond(task_id, worker) to quote the exact stake.
+        When the buyer has selected a bid, only that bidder may accept."""
+        t = self._get(task_id)
+        if t.status != 'OPEN':
+            raise Exception(f'EXPECTED: task is {t.status}, not OPEN')
+        sender = gl.message.sender_address
+        if sender == t.buyer:
             raise Exception('EXPECTED: buyer cannot accept own task')
+        if t.has_selection and sender != t.selected_worker:
+            raise Exception('EXPECTED: buyer selected a different bidder')
         if self._now_ms() > int(t.deadline_ms):
             raise Exception('EXPECTED: past deadline')
-        self._take_custody(int(t.bond), 'worker bond')
-        t.worker = gl.message.sender_address
+        bond = int(t.escrow) * self._bond_pct_for(sender) // 100
+        t.bond = u256(bond)
+        self._take_custody(bond, 'worker bond')
+        t.worker = sender
         t.has_worker = True
         t.status = 'ACCEPTED'
 
@@ -645,6 +785,10 @@ class AgentSLA(gl.Contract):
             'appeal_bond': str(int(t.appeal_bond)), 'appeal_outcome': t.appeal_outcome or None,
             'error_tag': t.error_tag or None, 'error_detail': t.error_detail or None,
             'settlement': json.loads(t.settlement_json),
+            'bids': json.loads(t.bids_json),
+            'selected_worker': t.selected_worker.as_hex if t.has_selection else None,
+            'group_id': int(t.group_id) or None,
+            'group_index': int(t.group_index), 'group_size': int(t.group_size),
             'now_ms': self._now_ms(),
         }
 
@@ -660,6 +804,22 @@ class AgentSLA(gl.Contract):
     @gl.public.view
     def get_task_count(self) -> int:
         return int(self.next_id) - 1
+
+    @gl.public.view
+    def get_required_bond(self, task_id: int, worker: str) -> str:
+        """Exact stake a given worker must attach to accept_task —
+        reputation-gated (FR-10), quoted from on-chain score."""
+        t = self._get(task_id)
+        who = Address(worker)
+        return str(int(t.escrow) * self._bond_pct_for(who) // 100)
+
+    @gl.public.view
+    def get_group(self, group_id: int) -> str:
+        """All milestone cases of a group, in stage order (FR-9)."""
+        out = [self._task_dict(t) for _, t in self.tasks.items()
+               if int(t.group_id) == int(group_id) and int(group_id) != 0]
+        out.sort(key=lambda d: d['group_index'])
+        return json.dumps(out)
 
     @gl.public.view
     def get_tasks_page(self, offset: int, limit: int) -> str:
@@ -721,5 +881,7 @@ class AgentSLA(gl.Contract):
             'min_escrow': str(int(self.min_escrow)),
             'bond_pct': BOND_PCT, 'appeal_bond_pct': APPEAL_BOND_PCT,
             'slash_buyer_pct': SLASH_BUYER_PCT,
+            'bond_tiers': [{'min_score': s, 'bond_pct': p} for s, p in BOND_TIERS],
+            'max_bids': MAX_BIDS, 'max_milestones': MAX_MILESTONES,
             'treasury': self.treasury.as_hex,
         })

@@ -58,6 +58,13 @@ export interface Evidence {
   submittedAt: number
 }
 
+/** Open offer from a worker to do the task for `price` (FR-8). */
+export interface Bid {
+  worker: Address
+  price: bigint
+  ts: number
+}
+
 export interface Task {
   id: number
   buyer: Address
@@ -77,6 +84,11 @@ export interface Task {
   settlement?: SettlementLine[]
   errorTag?: ErrorTag
   errorDetail?: string
+  bids?: Bid[]                // open bid book (FR-8)
+  selectedWorker?: Address    // buyer-selected bidder; locks acceptance
+  groupId?: number            // milestone group (FR-9)
+  groupIndex?: number
+  groupSize?: number
 }
 
 /** Transaction state ladder (FR-7.2). */

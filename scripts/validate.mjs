@@ -81,11 +81,10 @@ check(
 // Asset custody gates (FR-3.0): stakes are payable value, payouts are
 // native transfers, and the ledger is backed by contract balance.
 check(
-  'payable custody on all three stake intakes',
-  (code.match(/@gl\.public\.write\.payable/g) ?? []).length === 3
-    && /payable\s+def create_task/.test(code.replace(/\n\s+/g, ' '))
-    && /payable\s+def accept_task/.test(code.replace(/\n\s+/g, ' '))
-    && /payable\s+def file_appeal/.test(code.replace(/\n\s+/g, ' ')),
+  'payable custody on all stake intakes',
+  (code.match(/@gl\.public\.write\.payable/g) ?? []).length === 4
+    && ['create_task', 'create_task_group', 'accept_task', 'file_appeal'].every((m) =>
+      new RegExp(`payable\\s+def ${m}\\(`).test(code.replace(/\n\s+/g, ' '))),
 )
 check(
   'native withdrawal path (emit_transfer)',
@@ -113,15 +112,16 @@ if (syntaxOk) {
 if (schema) {
   const methods = schema.methods ?? {}
   const expect = {
-    create_task: false, accept_task: false, submit_delivery: false,
-    finalize: false, file_appeal: false, resolve_neutral: false,
-    cancel_task: false, reclaim_expired: false, withdraw: false,
-    abandon_task: false,
+    create_task: false, create_task_group: false, accept_task: false,
+    submit_delivery: false, finalize: false, file_appeal: false,
+    resolve_neutral: false, cancel_task: false, reclaim_expired: false,
+    withdraw: false, abandon_task: false, place_bid: false, select_bid: false,
     get_tasks: true, get_task: true, get_reputation: true,
     get_score: true, get_balance: true, get_params: true, get_vault: true,
-    get_task_count: true, get_tasks_page: true,
+    get_task_count: true, get_tasks_page: true, get_required_bond: true,
+    get_group: true,
   }
-  const payableExpected = ['create_task', 'accept_task', 'file_appeal']
+  const payableExpected = ['create_task', 'create_task_group', 'accept_task', 'file_appeal']
   const notPayable = payableExpected.filter((n) => methods[n] && methods[n].payable !== true)
   check(
     'payable methods declared in schema',

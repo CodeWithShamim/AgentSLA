@@ -1,6 +1,6 @@
 import { PrivyProvider, usePrivy, useWallets } from '@privy-io/react-auth'
 import { studionet } from 'genlayer-js/chains'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { PRIVY_APP_ID } from '../config/chain'
 import { useTheme } from './theme'
 import { chainBackend } from './chain'
@@ -76,9 +76,26 @@ async function ensureStudioChain(wallet: {
   await wallet.switchChain(studionet.id)
 }
 
+/** A refused chain switch leaves the wallet authenticated but unwired;
+ *  bumping this store re-runs WalletSync so the user can retry without
+ *  disconnecting. */
+let syncAttempt = 0
+const syncListeners = new Set<() => void>()
+function retryWalletSync() {
+  syncAttempt++
+  syncListeners.forEach((fn) => fn())
+}
+function useSyncAttempt(): number {
+  return useSyncExternalStore(
+    (fn) => { syncListeners.add(fn); return () => syncListeners.delete(fn) },
+    () => syncAttempt,
+  )
+}
+
 function WalletSync() {
   const { authenticated } = usePrivy()
   const { wallets } = useWallets()
+  const attempt = useSyncAttempt()
 
   useEffect(() => {
     let cancelled = false
@@ -94,14 +111,54 @@ function WalletSync() {
         if (!cancelled) chainBackend?.setPrivySigner(wallet.address as Address, provider)
       } catch {
         // Wallet refused the chain switch — don't wire a signer that will
-        // fail every write; buyer actions fall back to the local persona.
+        // fail every write. Buyer actions stay gated behind the connect
+        // prompt until the user retries the switch; nothing signs for them.
         if (!cancelled) chainBackend?.setPrivySigner(null, null)
       }
     })()
     return () => { cancelled = true }
-  }, [authenticated, wallets])
+  }, [authenticated, wallets, attempt])
 
   return null
+}
+
+/** Inline call-to-action rendered wherever a buyer-side write is gated on
+ *  a wallet signature. Handles all three states: not logged in (connect),
+ *  logged in but wallet not on Studio (retry the network switch), and
+ *  Privy still booting. Renders nothing once the signer is wired. */
+export function ConnectWalletButton({ label = 'Connect wallet to sign' }: { label?: string }) {
+  if (!PRIVY_APP_ID) return null
+  return <ConnectWalletInner label={label} />
+}
+
+function ConnectWalletInner({ label }: { label: string }) {
+  const { ready, authenticated, login } = usePrivy()
+  useSyncAttempt()
+  const connected = useSyncExternalStore(
+    (fn) => chainBackend?.subscribe(fn) ?? (() => {}),
+    () => chainBackend?.connectedAddress ?? null,
+  )
+
+  if (connected) return null
+  if (!ready) {
+    return <button className="btn btn-primary" disabled>Loading wallet…</button>
+  }
+  if (!authenticated) {
+    return <button className="btn btn-primary" onClick={login}>{label}</button>
+  }
+  // Authenticated but the signer isn't wired — the wallet is on the wrong
+  // network (or the switch is still in flight). Offer an explicit retry.
+  return (
+    <div style={{ display: 'grid', gap: 'var(--s-2)' }}>
+      <button className="btn btn-primary" onClick={retryWalletSync}>
+        Switch wallet to GenLayer Studio
+      </button>
+      <span className="t-small ink-faint">
+        Your wallet is connected but not on the Studio network — approve the
+        network switch to enable signing.
+      </span>
+    </div>
+  )
 }
 
 export function WalletControls() {

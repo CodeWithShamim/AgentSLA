@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { TREASURY } from '../config/chain'
 import { agentName } from '../lib/agents'
 import { fmtGEN, shortAddr } from '../lib/format'
-import { useActingAddress, useClaim, useVault } from '../lib/reads'
+import { useActingAddress, useClaim, useVault, useWalletGate } from '../lib/reads'
+import { ConnectWalletButton } from '../lib/wallet'
 import { writes } from '../lib/writes'
 
 /** Custody vault — the protocol's real-asset ledger (FR-3.0).
@@ -15,6 +16,10 @@ import { writes } from '../lib/writes'
 function ClaimRow(props: { side?: 'buyer' | 'worker'; address: string; label: string }) {
   const claim = useClaim(props.address)
   const [state, setState] = useState<'idle' | 'sending' | 'error'>('idle')
+  const gate = useWalletGate()
+  // Buyer claims are paid to the connected wallet — withdrawing requires
+  // its signature; a session key never signs for the buyer side.
+  const needWallet = props.side === 'buyer' && gate.required && !gate.connected
 
   const onWithdraw = async () => {
     if (!props.side) return
@@ -36,7 +41,9 @@ function ClaimRow(props: { side?: 'buyer' | 'worker'; address: string; label: st
       <span className="tc-amount t-data" aria-label="withdrawable claim">
         {fmtGEN(claim)}
       </span>
-      {props.side && (
+      {props.side && (needWallet ? (
+        claim > 0n && <ConnectWalletButton label="Connect wallet to withdraw" />
+      ) : (
         <button
           className="btn btn-secondary"
           onClick={() => void onWithdraw()}
@@ -45,7 +52,7 @@ function ClaimRow(props: { side?: 'buyer' | 'worker'; address: string; label: st
         >
           {state === 'sending' ? 'Withdrawing…' : state === 'error' ? 'Retry withdraw' : 'Withdraw'}
         </button>
-      )}
+      ))}
     </div>
   )
 }

@@ -7,7 +7,8 @@ import { TxLadder } from '../components/TxLadder'
 import { collapseBlock, revealBlock, DUR_FAST } from '../design/motion'
 import { fmtGEN, parseGEN, pct } from '../lib/format'
 import { useCountUp, useDocketOpen } from '../lib/hooks'
-import { useTasks } from '../lib/reads'
+import { useTasks, useWalletGate } from '../lib/reads'
+import { ConnectWalletButton } from '../lib/wallet'
 import { writes } from '../lib/writes'
 
 const genOf = (wei: bigint) => Number(wei) / 1e18
@@ -84,6 +85,8 @@ export function CreateTask() {
   const [filed, setFiled] = useState(false)
   const [busy, setBusy] = useState(false)
   const tasks = useTasks()
+  const gate = useWalletGate()
+  const needWallet = gate.required && !gate.connected
   const filedAt = useRef(0)
   const filedTitle = useRef('')
   const nextId = useRef(3)
@@ -225,13 +228,21 @@ export function CreateTask() {
       {err && <p className="error t-small" style={{ marginTop: 'var(--s-4)' }}>{err}</p>}
 
       <div style={{ marginTop: 'var(--s-5)', display: 'grid', gap: 'var(--s-4)' }}>
-        {!filed && (
+        {!filed && (needWallet ? (
+          <div style={{ display: 'grid', gap: 'var(--s-2)', justifyItems: 'start' }}>
+            <ConnectWalletButton label={`Connect wallet to escrow ${escrow !== null ? fmtGEN(escrow) : 'GEN'}`} />
+            <p className="t-small ink-faint">
+              Filing moves real GEN from your wallet into contract custody —
+              the transaction must be signed by your connected wallet.
+            </p>
+          </div>
+        ) : (
           <div>
             <button className="btn btn-primary" onClick={() => void submit()} disabled={busy}>
               {busy ? 'Signing…' : `Escrow ${escrow !== null ? fmtGEN(escrow) : '— GEN'} & open the case`}
             </button>
           </div>
-        )}
+        ))}
         {txHash && <TxLadder hash={txHash} />}
         {filed && (
           <p className="t-small ink-muted">

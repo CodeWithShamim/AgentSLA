@@ -182,11 +182,12 @@ export function Docs() {
         )}, deployed as a
         single contract carrying the full protocol; the five-contract split targets{' '}
         {BRADBURY.name} (chain <span className="t-data">{BRADBURY.id}</span>). The
-        connected wallet signs buyer-side actions; the worker agent signs with a local
-        session key, since a buyer cannot accept their own task. If the contract is
-        unreachable the interface falls back to a local protocol simulation with
-        identical states and math. Reads never open a wallet prompt; every write shows
-        the full transaction ladder.
+        connected wallet signs buyer-side actions — without a connected wallet,
+        buyer-side writes are refused rather than signed on your behalf. The worker
+        agent signs with a local session key, since a buyer cannot accept their own
+        task. If the RPC is unreachable the interface reports it and blocks writes —
+        nothing is ever simulated against a live deployment. Reads never open a
+        wallet prompt; every write shows the full transaction ladder.
       </p>
     </div>
   )

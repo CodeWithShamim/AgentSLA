@@ -11,9 +11,10 @@ import { TxLadder } from '../components/TxLadder'
 import { VerdictSeal } from '../components/VerdictSeal'
 import { countUp, revealRows } from '../design/motion'
 import { agentName } from '../lib/agents'
-import { caseNo, fmtCountdown, fmtDateTime, fmtGEN, pct, shortAddr } from '../lib/format'
+import { caseNo, fmtCountdown, fmtDateTime, fmtGEN, parseGEN, pct, shortAddr } from '../lib/format'
 import { useDocketOpen } from '../lib/hooks'
-import { useMode, useNow, useTask, useTx } from '../lib/reads'
+import { useMode, useNow, useTask, useTx, useWalletGate } from '../lib/reads'
+import { ConnectWalletButton } from '../lib/wallet'
 import { writes } from '../lib/writes'
 import type { Task } from '../lib/types'
 
@@ -106,6 +107,64 @@ function DeliverForm({ task, onTx, live, pending }: { task: Task; onTx: (h: stri
   )
 }
 
+/** Open bid book (FR-8): workers undercut the posted escrow; the buyer
+ *  awards a bid, which reprices the case to it and refunds the surplus. */
+function BidBook({ task, act, locked, needWallet }: {
+  task: Task
+  act: (fn: () => Promise<string>) => void
+  locked: boolean
+  needWallet: boolean
+}) {
+  const [price, setPrice] = useState('')
+  const bids = task.bids ?? []
+  const priceWei = parseGEN(price)
+
+  return (
+    <div className="well" style={{ padding: 'var(--s-3) var(--s-4)', display: 'grid', gap: 'var(--s-3)' }}>
+      <span className="t-label">Bid book — posted at {fmtGEN(task.escrow)}</span>
+      {bids.length === 0 && (
+        <p className="t-small ink-faint" style={{ margin: 0 }}>
+          No bids yet. A worker agent may offer to do this task for less than
+          the posted escrow; if the buyer awards the bid, the case reprices to
+          it and the surplus refunds immediately.
+        </p>
+      )}
+      {bids.map((b) => (
+        <div key={b.worker} className="tc-top" style={{ alignItems: 'center' }}>
+          <span className="tc-id t-data">{shortAddr(b.worker)}</span>
+          <span className="t-small ink-muted">{agentName(b.worker)}</span>
+          <span className="tc-amount t-data">{fmtGEN(b.price)}</span>
+          {task.selectedWorker?.toLowerCase() === b.worker.toLowerCase() ? (
+            <span className="t-label">SELECTED</span>
+          ) : needWallet ? null : (
+            <button className="btn btn-secondary" disabled={locked}
+              onClick={() => act(() => writes.selectBid(task.id, b.worker))}>
+              Award bid
+            </button>
+          )}
+        </div>
+      ))}
+      <div style={{ display: 'flex', gap: 'var(--s-2)', alignItems: 'center' }}>
+        <input
+          className="input mono"
+          style={{ maxWidth: 160 }}
+          placeholder="e.g. 6.5"
+          aria-label="bid price in GEN"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+        />
+        <button
+          className="btn btn-secondary"
+          disabled={locked || priceWei === null || priceWei <= 0n || priceWei > task.escrow}
+          onClick={() => priceWei !== null && act(() => writes.placeBid(task.id, priceWei))}
+        >
+          Place bid (worker)
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function CaseDetail() {
   const { id } = useParams()
   const task = useTask(Number(id))
@@ -122,6 +181,10 @@ export function CaseDetail() {
   const txRes = useTx(txHash)
   const txPending = !!txRes && (txRes.step === 'submitted' || txRes.step === 'pending')
   const locked = busy || txPending
+  // Buyer-side writes (cancel, reclaim, resolve, settle) move real funds
+  // and must be signed by the connected wallet — never a session key.
+  const gate = useWalletGate()
+  const needWallet = gate.required && !gate.connected
   const root = useDocketOpen<HTMLDivElement>([id])
   const criteriaRoot = useRef<HTMLDivElement>(null)
   const settlementRoot = useRef<HTMLDivElement>(null)
@@ -218,7 +281,10 @@ export function CaseDetail() {
   return (
     <div ref={root}>
       <div style={{ padding: 'var(--s-6) 0 0' }}>
-        <p className="t-data ink-faint">CASE {caseNo(task.id)} · filed {fmtDateTime(task.createdAt)}</p>
+        <p className="t-data ink-faint">
+          CASE {caseNo(task.id)} · filed {fmtDateTime(task.createdAt)}
+          {task.groupId ? ` · milestone ${(task.groupIndex ?? 0) + 1} of ${task.groupSize} — group #${task.groupId}` : ''}
+        </p>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--s-4)', flexWrap: 'wrap', marginTop: 'var(--s-2)' }}>
           <h1 className="t-h1">{task.title}</h1>
           <StatusChip status={task.status} verdict={v?.verdict} />
@@ -308,12 +374,20 @@ export function CaseDetail() {
 
           {task.status === 'OPEN' && (
             <div style={{ display: 'grid', gap: 'var(--s-3)' }}>
+              <BidBook task={task} act={act} locked={locked} needWallet={needWallet} />
               <button className="btn btn-primary" disabled={locked} onClick={() => act(() => writes.acceptTask(task.id))}>
-                {txPending && !busy ? 'Awaiting consensus…' : `Stake bond & accept (${fmtGEN(task.bond)})`}
+                {txPending && !busy ? 'Awaiting consensus…'
+                  : task.selectedWorker
+                    ? `Stake bond & accept as ${agentName(task.selectedWorker)} (${fmtGEN(task.bond)})`
+                    : `Stake bond & accept (${fmtGEN(task.bond)})`}
               </button>
-              <button className="btn btn-destructive" disabled={locked} onClick={() => act(() => writes.cancelTask(task.id))}>
-                Cancel & reclaim escrow ({fmtGEN(task.escrow)})
-              </button>
+              {needWallet ? (
+                <ConnectWalletButton label={`Connect wallet to cancel & reclaim ${fmtGEN(task.escrow)}`} />
+              ) : (
+                <button className="btn btn-destructive" disabled={locked} onClick={() => act(() => writes.cancelTask(task.id))}>
+                  Cancel & reclaim escrow ({fmtGEN(task.escrow)})
+                </button>
+              )}
               <p className="t-small ink-faint">
                 Accepting stakes a performance bond of {PARAMS.bondPct}% of escrow
                 {live ? ', signed by the local worker agent' : ''}.
@@ -362,9 +436,13 @@ export function CaseDetail() {
                 to return escrow to the buyer and bond to the worker — no slash, no
                 reputation write.
               </p>
-              <button className="btn btn-primary" disabled={locked} onClick={() => act(() => writes.resolveNeutral(task.id))}>
-                {txPending && !busy ? 'Awaiting consensus…' : 'Resolve neutrally'}
-              </button>
+              {needWallet ? (
+                <ConnectWalletButton label="Connect wallet to resolve neutrally" />
+              ) : (
+                <button className="btn btn-primary" disabled={locked} onClick={() => act(() => writes.resolveNeutral(task.id))}>
+                  {txPending && !busy ? 'Awaiting consensus…' : 'Resolve neutrally'}
+                </button>
+              )}
             </div>
           )}
 
@@ -386,9 +464,13 @@ export function CaseDetail() {
                   escrow; the full worker bond is slashed.
                 </span>
               </div>
-              <button className="btn btn-destructive" disabled={locked} onClick={() => act(() => writes.reclaimExpired(task.id))}>
-                {txPending && !busy ? 'Awaiting consensus…' : `Reclaim escrow + slash bond (${fmtGEN(task.escrow + task.bond)})`}
-              </button>
+              {needWallet ? (
+                <ConnectWalletButton label={`Connect wallet to reclaim ${fmtGEN(task.escrow + task.bond)}`} />
+              ) : (
+                <button className="btn btn-destructive" disabled={locked} onClick={() => act(() => writes.reclaimExpired(task.id))}>
+                  {txPending && !busy ? 'Awaiting consensus…' : `Reclaim escrow + slash bond (${fmtGEN(task.escrow + task.bond)})`}
+                </button>
+              )}
             </div>
           )}
 
@@ -421,9 +503,13 @@ export function CaseDetail() {
                     The appeal window has closed. Execute settlement to move funds
                     and record reputation.
                   </p>
-                  <button className="btn btn-primary" disabled={locked} onClick={() => act(() => writes.finalize(task.id))}>
-                    {txPending && !busy ? 'Awaiting consensus…' : 'Execute settlement'}
-                  </button>
+                  {needWallet ? (
+                    <ConnectWalletButton label="Connect wallet to execute settlement" />
+                  ) : (
+                    <button className="btn btn-primary" disabled={locked} onClick={() => act(() => writes.finalize(task.id))}>
+                      {txPending && !busy ? 'Awaiting consensus…' : 'Execute settlement'}
+                    </button>
+                  )}
                 </div>
               )}
             </>

@@ -1,7 +1,7 @@
 import { createClient } from 'genlayer-js'
 import { studionet } from 'genlayer-js/chains'
 import { transactionsStatusNumberToName } from 'genlayer-js/types'
-import { CHAIN, CONTRACT_ADDRESS, PARAMS, TREASURY } from '../config/chain'
+import { CHAIN, CONTRACT_ADDRESS, PARAMS, PRIVY_APP_ID, TREASURY } from '../config/chain'
 import { registerChainNameResolver } from './agents'
 import { pct } from './format'
 import { sessionAccounts, type Persona } from './session'
@@ -13,11 +13,10 @@ import type {
 /** ChainBackend — the live StudioNet data layer.
  *
  *  Polls the deployed AgentSLA contract and mirrors it into the same
- *  Task/TxRecord shapes the views already consume. Writes are signed
- *  either by the connected Privy wallet (buyer-side actions) or by the
- *  local session personas: the human operator is the buyer, the worker
- *  agent runs on a local session key — a buyer cannot accept their own
- *  task on-chain. */
+ *  Task/TxRecord shapes the views already consume. Buyer-side writes are
+ *  signed by the connected Privy wallet — required, never substituted.
+ *  The worker agent runs on a local session key: the human operator is
+ *  the buyer, and a buyer cannot accept their own task on-chain. */
 
 const POLL_MS = 4000
 const TX_POLL_MS = 2500
@@ -127,6 +126,13 @@ function mapTask(raw: any, pendingKind: string | undefined): Task {
     settlement: settlement.length ? settlement : undefined,
     errorTag: (raw.error_tag ?? undefined) as Task['errorTag'],
     errorDetail: raw.error_detail ?? undefined,
+    bids: ((raw.bids ?? []) as any[]).map((b) => ({
+      worker: b.worker as Address, price: BigInt(b.price), ts: Number(b.ts),
+    })),
+    selectedWorker: (raw.selected_worker ?? undefined) as Address | undefined,
+    groupId: raw.group_id ? Number(raw.group_id) : undefined,
+    groupIndex: Number(raw.group_index ?? 0),
+    groupSize: Number(raw.group_size ?? 0),
   }
 }
 
@@ -168,6 +174,13 @@ class ChainBackend {
   get healthy(): boolean { return this.everSucceeded }
   get unreachable(): boolean { return !this.everSucceeded && this.consecutiveFailures >= 3 }
 
+  /** Connection state for the header badge — reads and writes always target
+   *  the chain; this only reports whether the RPC is currently answering. */
+  get health(): 'connecting' | 'ok' | 'degraded' | 'unreachable' {
+    if (this.consecutiveFailures >= 3) return this.everSucceeded ? 'degraded' : 'unreachable'
+    return this.everSucceeded ? 'ok' : 'connecting'
+  }
+
   // ----- signers -----
 
   setPrivySigner(address: Address | null, provider: unknown) {
@@ -200,15 +213,26 @@ class ChainBackend {
     } catch { /* gasless network — funding is best-effort */ }
   }
 
-  /** Buyer-side actions use the connected wallet when present, else the
-   *  buyer persona. Worker-side actions always use the worker persona. */
+  /** Buyer-side actions are signed by the connected wallet — when wallet
+   *  auth is configured, there is no fallback signer: an unconnected buyer
+   *  write throws instead of silently signing with a local key. The worker
+   *  agent (the distinct counterparty — a buyer cannot accept their own
+   *  task) runs on the local session key. */
   private clientFor(side: Persona) {
-    if (side === 'buyer' && this.privySigner) {
-      return createClient({
-        chain: chainConfig,
-        account: this.privySigner.address,
-        provider: this.privySigner.provider as never,
-      })
+    if (side === 'buyer') {
+      if (this.privySigner) {
+        return createClient({
+          chain: chainConfig,
+          account: this.privySigner.address,
+          provider: this.privySigner.provider as never,
+        })
+      }
+      if (PRIVY_APP_ID) {
+        throw new Error(
+          'WALLET_REQUIRED: connect your wallet to sign this action — '
+          + 'buyer-side transactions move real funds and are never signed by a session key.',
+        )
+      }
     }
     const account = sessionAccounts[side]
     void this.fund(account.address)
@@ -393,11 +417,26 @@ class ChainBackend {
     }
   }
 
-  acceptTask(id: number): Promise<string> {
-    const bond = this.getTask(id)?.bond
-    if (bond === undefined) return Promise.reject(new Error(`task ${id} not loaded`))
+  async acceptTask(id: number): Promise<string> {
+    // Bonds are reputation-gated: quote the acting worker's exact stake
+    // from chain — attaching the generic 20% would over/under-fund.
+    const quote = await this.readClient.readContract({
+      address: this.address,
+      functionName: 'get_required_bond',
+      args: [id, this.actingAddress('worker')],
+    })
     return this.submitTx('worker', 'accept_task', [id],
-      'accept_task — stake bond', id, undefined, bond)
+      'accept_task — stake bond', id, undefined, BigInt(String(quote)))
+  }
+
+  placeBid(id: number, price: bigint): Promise<string> {
+    return this.submitTx('worker', 'place_bid', [id, price],
+      `place_bid — offer ${price}`, id)
+  }
+
+  selectBid(id: number, worker: Address): Promise<string> {
+    return this.submitTx('buyer', 'select_bid', [id, worker],
+      'select_bid — award & reprice', id)
   }
 
   submitDelivery(id: number, evidence: { url?: string; inline?: string }): Promise<string> {

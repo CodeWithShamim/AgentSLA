@@ -541,9 +541,41 @@ class SimStore {
 
   acceptTask(id: number): string {
     const t = this.mustGet(id, 'OPEN')
-    t.worker = DEFAULT_WORKER
+    if (t.selectedWorker && t.selectedWorker !== DEFAULT_WORKER) {
+      throw new Error('buyer selected a different bidder')
+    }
+    t.worker = t.selectedWorker ?? DEFAULT_WORKER
     t.status = 'ACCEPTED'
     const tx = this.openTx('accept_task — stake bond', id)
+    this.notify()
+    return tx.hash
+  }
+
+  placeBid(id: number, price: bigint): string {
+    const t = this.mustGet(id, 'OPEN')
+    if (price < PARAMS.minEscrow || price > t.escrow) {
+      throw new Error('bid must be between the minimum escrow and the task escrow')
+    }
+    t.bids = [...(t.bids ?? []).filter((b) => b.worker !== DEFAULT_WORKER),
+      { worker: DEFAULT_WORKER, price, ts: Date.now() }]
+    const tx = this.openTx(`place_bid — offer ${price}`, id)
+    this.notify()
+    return tx.hash
+  }
+
+  selectBid(id: number, worker: Address): string {
+    const t = this.mustGet(id, 'OPEN')
+    const bid = (t.bids ?? []).find((b) => b.worker.toLowerCase() === worker.toLowerCase())
+    if (!bid) throw new Error('no bid from that worker')
+    const surplus = t.escrow - bid.price
+    if (surplus > 0n) {
+      const k = t.buyer.toLowerCase()
+      this.state.claims[k] = (this.state.claims[k] ?? 0n) + surplus
+    }
+    t.escrow = bid.price
+    t.bond = pct(bid.price, PARAMS.bondPct)
+    t.selectedWorker = bid.worker
+    const tx = this.openTx('select_bid — award & reprice', id)
     this.notify()
     return tx.hash
   }
