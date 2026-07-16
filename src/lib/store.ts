@@ -89,8 +89,8 @@ function computeSettlement(task: Task, verdict: Verdict): SettlementLine[] {
 
 // ---------- reputation (FR-6) ----------
 
-const DELTAS: Record<VerdictKind | 'DEADLINE_MISS', number> = {
-  MET: 2, PARTIAL: 0, NOT_MET: -3, DEADLINE_MISS: -5,
+const DELTAS: Record<VerdictKind | 'DEADLINE_MISS' | 'ABANDONED', number> = {
+  MET: 2, PARTIAL: 0, NOT_MET: -3, DEADLINE_MISS: -5, ABANDONED: -2,
 }
 
 // ---------- seed ----------
@@ -420,6 +420,9 @@ class SimStore {
       if (t.status === 'EXPIRED' && t.worker === address && t.settlement) {
         history.push({ taskId: t.id, role: 'worker', verdict: 'DEADLINE_MISS', delta: DELTAS.DEADLINE_MISS, timestamp: t.deadline })
       }
+      if (t.status === 'ABANDONED' && t.worker === address) {
+        history.push({ taskId: t.id, role: 'worker', verdict: 'ABANDONED', delta: DELTAS.ABANDONED, timestamp: t.createdAt })
+      }
     }
     history.sort((a, b) => b.timestamp - a.timestamp)
     const raw = history.reduce((s, e) => s + e.delta, 0)
@@ -599,6 +602,19 @@ class SimStore {
     return tx.hash
   }
 
+  abandonTask(id: number): string {
+    const t = this.mustGet(id, 'ACCEPTED')
+    t.settlement = [
+      { label: 'Escrow refunded to buyer', to: t.buyer, amount: t.escrow, kind: 'refund' },
+      { label: 'Bond forfeited to buyer — worker abandoned', to: t.buyer, amount: t.bond, kind: 'slash' },
+    ]
+    this.applyClaims(t.settlement)
+    t.status = 'ABANDONED'
+    const tx = this.openTx('abandon — concede & refund buyer', id)
+    this.notify()
+    return tx.hash
+  }
+
   reclaimExpired(id: number): string {
     const t = this.mustGet(id, 'EXPIRED')
     t.settlement = [
@@ -624,7 +640,7 @@ class SimStore {
     let locked = 0n
     for (const t of this.state.tasks) {
       if (t.settlement) continue                    // settled → moved to claims
-      if (t.status === 'CANCELED' || t.status === 'FINAL' || t.status === 'RESOLVED_NEUTRAL') continue
+      if (t.status === 'CANCELED' || t.status === 'FINAL' || t.status === 'RESOLVED_NEUTRAL' || t.status === 'ABANDONED') continue
       locked += t.escrow
       if (t.worker) locked += t.bond
       if (t.appeal && !t.appeal.outcome) locked += t.appeal.bond

@@ -41,6 +41,10 @@ export const writes = {
   reclaimExpired: async (id: number): Promise<string> =>
     onChain() ? chainBackend!.reclaimExpired(id) : store.reclaimExpired(id),
 
+  /** Worker's honest fail-fast exit: refund escrow + forfeit bond now. */
+  abandonTask: async (id: number): Promise<string> =>
+    onChain() ? chainBackend!.abandonTask(id) : store.abandonTask(id),
+
   /** Pull-payment exit: pays the caller's full claim as native GEN. */
   withdraw: async (side: 'buyer' | 'worker', simAddress: Address): Promise<string> =>
     onChain() ? chainBackend!.withdraw(side) : store.withdraw(simAddress),

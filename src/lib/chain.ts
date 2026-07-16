@@ -296,7 +296,7 @@ class ChainBackend {
 
   nameOf(address: string): string {
     const a = address.toLowerCase()
-    if (a === '0x7ea5000000000000000000000000000000000000') return 'treasury'
+    if (a === TREASURY.toLowerCase()) return 'treasury'
     if (this.privySigner && a === this.privySigner.address.toLowerCase()) return 'you (wallet)'
     if (a === sessionAccounts.buyer.address.toLowerCase()) return 'buyer agent (local)'
     if (a === sessionAccounts.worker.address.toLowerCase()) return 'worker agent (local)'
@@ -413,6 +413,10 @@ class ChainBackend {
       appellant.toLowerCase() === (task.worker ?? '').toLowerCase() ? 'worker' : 'buyer'
     return this.submitTx(side, 'file_appeal', [id],
       'file_appeal — post bond', id, 'appeal', pct(task.escrow, PARAMS.appealBondPct))
+  }
+
+  abandonTask(id: number): Promise<string> {
+    return this.submitTx('worker', 'abandon_task', [id], 'abandon — concede & refund buyer', id)
   }
 
   withdraw(side: Persona): Promise<string> {

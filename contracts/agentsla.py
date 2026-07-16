@@ -1,6 +1,6 @@
 # { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
 
-# AgentSLA — on-chain SLA adjudication for agent-to-agent commerce.
+# AgentSLA ------- on-chain SLA adjudication for agent-to-agent commerce.
 #
 # Single-contract deployment of the protocol (TaskRegistry + SLAAdjudicator +
 # EscrowVault ledger + AgentReputation + AppealManager) for GenLayer Studio
@@ -40,6 +40,17 @@ APPEAL_BOND_PCT = 10     # appeal bond = 10% of escrow (FR-5.2)
 SLASH_BUYER_PCT = 50     # NOT_MET slash split (FR-3.3)
 MAX_EVIDENCE_CHARS = 6000
 
+# Input hardening: everything a counterparty submits is bounded, so no
+# task can bloat storage or the adjudication prompt, and no typo can lock
+# escrow behind a decades-away deadline.
+MAX_TITLE_CHARS = 200
+MAX_SLA_CHARS = 5000
+MAX_CRITERION_CHARS = 300
+MAX_URL_CHARS = 500
+MAX_INLINE_CHARS = 20000
+MAX_DEADLINE_HORIZON_MS = 366 * 86_400_000   # ≤ ~1 year out
+MAX_FETCH_RETRIES = 2    # EXTERNAL/TRANSIENT re-deliveries before neutral path
+
 VERDICTS = ('MET', 'PARTIAL', 'NOT_MET')
 
 
@@ -78,6 +89,7 @@ class Task:
     error_tag: str            # '' | EXPECTED | EXTERNAL | TRANSIENT | LLM_ERROR
     error_detail: str
     settlement_json: str      # JSON [{label, to, amount, kind}]
+    fetch_retries: u256       # EXTERNAL/TRANSIENT delivery failures so far
 
 
 # ----------------------------------------------------------------------
@@ -187,7 +199,9 @@ class AgentSLA(gl.Contract):
         self.next_id = 1
         self.appeal_window_ms = appeal_window_ms
         self.min_escrow = min_escrow
-        self.treasury = Address('0x7EA5000000000000000000000000000000000000')
+        # Slash revenue accrues to the deployer/operator as a withdrawable
+        # claim — a keyless placeholder address would silently burn it.
+        self.treasury = gl.message.sender_address
         self.locked = u256(0)
         self.withdrawable_total = u256(0)
         self.paid_out = u256(0)
@@ -377,13 +391,20 @@ class AgentSLA(gl.Contract):
             raise Exception('EXPECTED: criteria must be a JSON list of 1-10 statements')
         if any(not str(c).strip() for c in criteria):
             raise Exception('EXPECTED: empty criterion')
+        if any(len(str(c)) > MAX_CRITERION_CHARS for c in criteria):
+            raise Exception(f'EXPECTED: criterion exceeds {MAX_CRITERION_CHARS} chars')
         escrow = int(gl.message.value)
         if escrow < int(self.min_escrow):
             raise Exception('EXPECTED: escrow below minimum')
         if not title.strip() or not sla_text.strip():
             raise Exception('EXPECTED: title and SLA text are required')
-        if int(deadline_ms) <= self._now_ms():
+        if len(title) > MAX_TITLE_CHARS or len(sla_text) > MAX_SLA_CHARS:
+            raise Exception('EXPECTED: title or SLA text exceeds size limit')
+        now = self._now_ms()
+        if int(deadline_ms) <= now:
             raise Exception('EXPECTED: deadline must be in the future')
+        if int(deadline_ms) > now + MAX_DEADLINE_HORIZON_MS:
+            raise Exception('EXPECTED: deadline too far out (max 1 year)')
         self.locked = u256(int(self.locked) + escrow)
 
         task_id = int(self.next_id)
@@ -402,6 +423,7 @@ class AgentSLA(gl.Contract):
             appellant=Address(b'\x00' * 20), has_appeal=False,
             appeal_bond=u256(0), appeal_outcome='',
             error_tag='', error_detail='', settlement_json='[]',
+            fetch_retries=u256(0),
         )
         return task_id
 
@@ -431,6 +453,8 @@ class AgentSLA(gl.Contract):
             raise Exception('EXPECTED: only the accepted worker may deliver')
         if not evidence_url.strip() and not evidence_inline.strip():
             raise Exception('EXPECTED: at least one evidence field required')
+        if len(evidence_url) > MAX_URL_CHARS or len(evidence_inline) > MAX_INLINE_CHARS:
+            raise Exception('EXPECTED: evidence exceeds size limit')
         now = self._now_ms()
         if now > int(t.deadline_ms):
             raise Exception('EXPECTED: past deadline')
@@ -444,9 +468,15 @@ class AgentSLA(gl.Contract):
             tag = str(outcome['err']).split(':', 1)[0]
             t.error_tag = tag if tag in ('EXPECTED', 'EXTERNAL', 'TRANSIENT', 'LLM_ERROR') else 'LLM_ERROR'
             t.error_detail = str(outcome['err'])[:300]
-            # EXTERNAL/TRANSIENT keep the task deliverable (retry window);
-            # LLM_ERROR opens the neutral-resolution path (FR-4.1).
-            t.status = 'SOFT_ERROR' if t.error_tag == 'LLM_ERROR' else 'ACCEPTED'
+            # EXTERNAL/TRANSIENT keep the task deliverable for a bounded
+            # number of retries (FR-4.2); LLM_ERROR — and retry exhaustion —
+            # open the neutral-resolution path (FR-4.1), so buyer escrow can
+            # never be held hostage by an endlessly re-failing delivery.
+            if t.error_tag == 'LLM_ERROR':
+                t.status = 'SOFT_ERROR'
+            else:
+                t.fetch_retries = u256(int(t.fetch_retries) + 1)
+                t.status = 'SOFT_ERROR' if int(t.fetch_retries) > MAX_FETCH_RETRIES else 'ACCEPTED'
             return t.error_tag
         self._apply_judgment(t, outcome['ok'], 1)
         return t.verdict
@@ -495,6 +525,9 @@ class AgentSLA(gl.Contract):
         t = self._get(task_id)
         if t.status != 'SOFT_ERROR':
             raise Exception(f'EXPECTED: task is {t.status}, not SOFT_ERROR')
+        sender = gl.message.sender_address
+        if sender != t.buyer and sender != t.worker:
+            raise Exception('EXPECTED: only a party to the case may resolve neutrally')
         self._credit(t.buyer, int(t.escrow))
         self._credit(t.worker, int(t.bond))
         lines = [
@@ -526,6 +559,29 @@ class AgentSLA(gl.Contract):
              'amount': str(int(t.escrow)), 'kind': 'refund'},
         ])
         t.status = 'CANCELED'
+
+    @gl.public.write
+    def abandon_task(self, task_id: int) -> None:
+        """Honest fail-fast exit (FR-1.5): a worker agent that knows it
+        cannot deliver concedes immediately instead of squatting until the
+        deadline. The buyer is made whole at once (escrow + full bond) and
+        capital is unlocked months of dead time earlier; the reputation
+        cost (-2) is deliberately softer than a silent deadline miss (-5)
+        so agents are incentivized to fail honestly."""
+        t = self._get(task_id)
+        if t.status != 'ACCEPTED':
+            raise Exception(f'EXPECTED: task is {t.status}, not ACCEPTED')
+        if gl.message.sender_address != t.worker:
+            raise Exception('EXPECTED: only the accepted worker may abandon')
+        self._credit(t.buyer, int(t.escrow) + int(t.bond))
+        t.settlement_json = json.dumps([
+            {'label': 'Escrow refunded to buyer', 'to': t.buyer.as_hex,
+             'amount': str(int(t.escrow)), 'kind': 'refund'},
+            {'label': 'Bond forfeited to buyer — worker abandoned', 'to': t.buyer.as_hex,
+             'amount': str(int(t.bond)), 'kind': 'slash'},
+        ])
+        t.status = 'ABANDONED'
+        self._rep(t.worker, int(t.id), 'worker', 'ABANDONED', -2)
 
     @gl.public.write
     def withdraw(self) -> str:
@@ -600,6 +656,26 @@ class AgentSLA(gl.Contract):
     @gl.public.view
     def get_task(self, task_id: int) -> str:
         return json.dumps(self._task_dict(self._get(task_id)))
+
+    @gl.public.view
+    def get_task_count(self) -> int:
+        return int(self.next_id) - 1
+
+    @gl.public.view
+    def get_tasks_page(self, offset: int, limit: int) -> str:
+        """Bounded docket read: ids are dense (1..count, nothing deleted),
+        so a page is a contiguous id range. Keeps view payloads flat as
+        the docket grows."""
+        if int(limit) < 1 or int(limit) > 50:
+            raise Exception('EXPECTED: limit must be 1-50')
+        count = int(self.next_id) - 1
+        start = int(offset) + 1
+        out = []
+        for tid in range(start, min(start + int(limit), count + 1)):
+            t = self.tasks.get(u256(tid))
+            if t is not None:
+                out.append(self._task_dict(t))
+        return json.dumps({'total': count, 'offset': int(offset), 'tasks': out})
 
     @gl.public.view
     def get_reputation(self) -> str:

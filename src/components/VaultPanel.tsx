@@ -28,7 +28,7 @@ function ClaimRow(props: { side?: 'buyer' | 'worker'; address: string; label: st
   }
 
   return (
-    <div className="tc-top" style={{ alignItems: 'center', padding: 'var(--s-2) 0' }}>
+    <div className="tc-top" style={{ alignItems: 'center', padding: 'var(--s-3) 0' }}>
       <span className="tc-id t-data" aria-label={`address ${props.address}`}>
         {shortAddr(props.address)}
       </span>
@@ -66,7 +66,7 @@ export function VaultPanel() {
 
   return (
     <section aria-label="custody vault">
-      <div className="filing" style={{ paddingTop: 'var(--s-3)' }}>
+      <div className="filing" style={{ padding: 'var(--s-4) var(--s-5)' }}>
         <p className="t-body ink-muted">
           Every escrow, bond, and appeal bond is native GEN held by the contract.
           Settlements convert locked custody into withdrawable claims; withdrawal

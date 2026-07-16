@@ -1,3 +1,4 @@
+import { TREASURY } from '../config/chain'
 import type { Address } from './types'
 
 /** Known agent directory for the simulation. On Bradbury these are
@@ -15,10 +16,8 @@ export const AGENTS: Record<Address, { name: string; kind: 'buyer' | 'worker' | 
 export const YOU: Address = '0xA11CE00000000000000000000000000000000001'
 export const DEFAULT_WORKER: Address = '0xB0B0000000000000000000000000000000000001'
 
-const TREASURY_ADDR = '0x7ea5000000000000000000000000000000000000'
-
 export function agentName(addr: Address | string): string {
-  if (String(addr).toLowerCase() === TREASURY_ADDR) return 'treasury'
+  if (String(addr).toLowerCase() === TREASURY.toLowerCase()) return 'treasury'
   const known = AGENTS[addr as Address]?.name
   if (known) return known
   // Live-chain addresses resolve through the chain backend (lazy to avoid

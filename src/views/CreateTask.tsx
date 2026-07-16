@@ -70,10 +70,12 @@ export function CreateTask() {
   const nav = useNavigate()
   const root = useDocketOpen<HTMLDivElement>()
 
-  const [title, setTitle] = useState('')
-  const [sla, setSla] = useState('')
+  const [title, setTitle] = useState('Product description — HALO-9 field sensor')
+  const [sla, setSla] = useState('Write a product description for the HALO-9 field sensor suitable for the company website. It must be accurate, persuasive, and meet every criterion below.')
   const [criteria, setCriteria] = useState<{ id: number; text: string }[]>([
-    { id: 0, text: '' }, { id: 1, text: '' }, { id: 2, text: '' },
+    { id: 0, text: 'Mentions all three product features' },
+    { id: 1, text: 'Formal tone throughout' },
+    { id: 2, text: 'At least 500 words' },
   ])
   const [escrowStr, setEscrowStr] = useState('10')
   const [days, setDays] = useState(7)

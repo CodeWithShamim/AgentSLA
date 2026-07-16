@@ -116,8 +116,10 @@ if (schema) {
     create_task: false, accept_task: false, submit_delivery: false,
     finalize: false, file_appeal: false, resolve_neutral: false,
     cancel_task: false, reclaim_expired: false, withdraw: false,
+    abandon_task: false,
     get_tasks: true, get_task: true, get_reputation: true,
     get_score: true, get_balance: true, get_params: true, get_vault: true,
+    get_task_count: true, get_tasks_page: true,
   }
   const payableExpected = ['create_task', 'accept_task', 'file_appeal']
   const notPayable = payableExpected.filter((n) => methods[n] && methods[n].payable !== true)

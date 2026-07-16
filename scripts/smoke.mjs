@@ -19,7 +19,6 @@ const { address, rpcUrl, appealWindowMs } = JSON.parse(
 const pk = fs.readFileSync(path.join(root, '.env'), 'utf8').match(/DEPLOYER_PRIVATE_KEY=(0x\w+)/)[1]
 
 const GEN = 10n ** 18n
-const TREASURY = '0x7ea5000000000000000000000000000000000000'
 
 const buyer = createAccount(pk)
 const worker = createAccount(generatePrivateKey())
@@ -36,8 +35,24 @@ const fund = (addr, wei) =>
     body: `{"jsonrpc":"2.0","id":1,"method":"sim_fundAccount","params":["${addr}",${wei}]}`,
   })
 
+/** Studio is a shared node: -32006 "execution slots occupied" and -32029
+ *  "rate limit exceeded" (30 req/min) are transient conditions, not
+ *  failures. Back off and retry. */
+const withBusyRetry = async (fn, label = 'rpc') => {
+  for (let i = 0; i < 20; i++) {
+    try {
+      return await fn()
+    } catch (e) {
+      const msg = String(e?.details ?? e?.cause?.message ?? e?.message ?? e)
+      if (!/busy|slots occupied|retry later|rate limit/i.test(msg)) throw e
+      await new Promise((r) => setTimeout(r, 8000))
+    }
+  }
+  throw new Error(`${label}: node stayed busy after 20 retries`)
+}
+
 const read = async (fn, args = []) =>
-  buyerClient.readContract({ address, functionName: fn, args })
+  withBusyRetry(() => buyerClient.readContract({ address, functionName: fn, args }), fn)
 
 /** Backing invariant: custody must never be less than what the ledger
  *  owes. A withdraw's native payout is a triggered transaction, so right
@@ -53,22 +68,25 @@ const vault = async () => {
 
 /** Wait for in-flight outbound transfers to settle: custody drains back
  *  to exactly locked + withdrawable. */
-const vaultSettled = async (label, retries = 45) => {
+const vaultSettled = async (label, retries = 30) => {
   for (let i = 0; i < retries; i++) {
     const v = await vault()
     if (BigInt(v.custody) === BigInt(v.locked) + BigInt(v.withdrawable)) {
       console.log(`  ✓ ${label}: custody settled to locked + withdrawable`)
       return v
     }
-    await new Promise((r) => setTimeout(r, 2000))
+    await new Promise((r) => setTimeout(r, 5000))
   }
   throw new Error(`${label}: outbound transfer never settled`)
 }
 
 const write = async (client, functionName, args, label, value = 0n) => {
   const t0 = Date.now()
-  const hash = await client.writeContract({ address, functionName, args, value })
-  const receipt = await client.waitForTransactionReceipt({ hash, status: 'ACCEPTED', interval: 2000, retries: 90 })
+  const hash = await withBusyRetry(
+    () => client.writeContract({ address, functionName, args, value }), functionName)
+  const receipt = await withBusyRetry(
+    () => client.waitForTransactionReceipt({ hash, status: 'ACCEPTED', interval: 5000, retries: 60 }),
+    `${functionName} receipt`)
   const status = receipt?.statusName ?? receipt?.status
   console.log(`${label}: ${status} in ${((Date.now() - t0) / 1000).toFixed(1)}s`)
   return receipt
@@ -87,8 +105,21 @@ console.log('funded buyer + worker with 100 GEN each')
 
 const v0 = await vault()
 console.log('vault before:', v0)
+
+// Treasury = deployer, which is also this script's buyer — dedupe the
+// conservation parties so overlapping addresses are not double-counted.
+const { treasury } = JSON.parse(await read('get_params'))
+const parties = []
+{
+  const seen = new Set()
+  for (const [who, addr] of [['worker', worker.address], ['buyer', buyer.address], ['treasury', treasury]]) {
+    const k = addr.toLowerCase()
+    if (!seen.has(k)) { seen.add(k); parties.push([who, addr]) }
+  }
+}
+
 const claims0 = {}
-for (const [who, addr] of [['worker', worker.address], ['buyer', buyer.address], ['treasury', TREASURY]]) {
+for (const [who, addr] of parties) {
   claims0[who] = BigInt(await read('get_balance', [addr]))
 }
 
@@ -139,12 +170,13 @@ if (t.status !== 'FINAL') throw new Error(`expected FINAL, got ${t.status}`)
 
 // --- conservation: every wei of escrow+bond is claimable by someone ---
 const claims = {}
-for (const [who, addr] of [['worker', worker.address], ['buyer', buyer.address], ['treasury', TREASURY]]) {
+let claimed = 0n
+for (const [who, addr] of parties) {
   claims[who] = BigInt(await read('get_balance', [addr])) - claims0[who]
+  claimed += claims[who]
   console.log(`claim[${who}] (this case) = ${claims[who]}`)
 }
-assertEq('conservation (claims sum to escrow + bond)',
-  claims.worker + claims.buyer + claims.treasury, escrow + bond)
+assertEq('conservation (claims sum to escrow + bond)', claimed, escrow + bond)
 const v3 = await vault()
 assertEq('nothing left locked for this case', BigInt(v3.locked), BigInt(v0.locked))
 
@@ -161,5 +193,24 @@ if (claims.buyer > 0n) {
   assertEq('buyer claim zeroed', BigInt(await read('get_balance', [buyer.address])), 0n)
   await vaultSettled('buyer payout')
 }
+
+// --- abandon: honest fail-fast exit refunds the buyer immediately ---
+const buyerClaimBefore = BigInt(await read('get_balance', [buyer.address]))
+const escrow2 = 1n * GEN
+await write(buyerClient, 'create_task', [
+  'Abandon-path check', 'Any deliverable.', JSON.stringify(['any criterion']),
+  Date.now() + 86_400_000,
+], 'create_task #2 (for abandon)', escrow2)
+const tasks2 = JSON.parse(await read('get_tasks'))
+const id2 = tasks2[tasks2.length - 1].id
+const bond2 = BigInt(tasks2[tasks2.length - 1].bond)
+await write(workerClient, 'accept_task', [id2], 'accept_task #2', bond2)
+await write(workerClient, 'abandon_task', [id2], 'abandon_task (honest exit)')
+const t2 = JSON.parse(await read('get_task', [id2]))
+if (t2.status !== 'ABANDONED') throw new Error(`expected ABANDONED, got ${t2.status}`)
+assertEq('abandon refunds buyer escrow + full bond (claimable)',
+  BigInt(await read('get_balance', [buyer.address])) - buyerClaimBefore, escrow2 + bond2)
+await write(buyerClient, 'withdraw', [], 'withdraw (buyer, abandon refund)')
+await vaultSettled('abandon refund payout')
 
 console.log('\nsmoke: full asset lifecycle OK — custody backed at every step, conservation exact')

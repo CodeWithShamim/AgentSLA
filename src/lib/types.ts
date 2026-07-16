@@ -17,6 +17,7 @@ export type TaskStatus =
   | 'FINAL'
   | 'CANCELED'
   | 'EXPIRED'       // deadline missed, buyer reclaim available
+  | 'ABANDONED'     // worker conceded early — buyer made whole immediately
 
 /** FR-4 error taxonomy — deterministic string prefixes. */
 export type ErrorTag = 'EXPECTED' | 'EXTERNAL' | 'TRANSIENT' | 'LLM_ERROR'
@@ -92,7 +93,7 @@ export interface TxRecord {
 export interface ReputationEvent {
   taskId: number
   role: 'buyer' | 'worker'
-  verdict: VerdictKind | 'DEADLINE_MISS'
+  verdict: VerdictKind | 'DEADLINE_MISS' | 'ABANDONED'
   delta: number
   timestamp: number
 }

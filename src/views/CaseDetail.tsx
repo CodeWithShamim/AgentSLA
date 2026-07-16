@@ -322,7 +322,20 @@ export function CaseDetail() {
             </div>
           )}
 
-          {task.status === 'ACCEPTED' && <DeliverForm task={task} onTx={setTxHash} live={live} pending={txPending} />}
+          {task.status === 'ACCEPTED' && (
+            <div style={{ display: 'grid', gap: 'var(--s-3)' }}>
+              <DeliverForm task={task} onTx={setTxHash} live={live} pending={txPending} />
+              <button className="btn btn-destructive" disabled={locked} onClick={() => act(() => writes.abandonTask(task.id))}>
+                Abandon — concede &amp; refund buyer ({fmtGEN(task.escrow + task.bond)})
+              </button>
+              <p className="t-small ink-faint">
+                Honest fail-fast exit for the worker agent: escrow returns to the
+                buyer and the full bond forfeits immediately, unlocking capital
+                without waiting out the deadline. Reputation −2 — deliberately
+                softer than a silent deadline miss (−5).
+              </p>
+            </div>
+          )}
 
           {task.status === 'ADJUDICATING' && (
             <p className="t-body ink-muted">

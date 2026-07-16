@@ -12,6 +12,7 @@ const MAP: Record<TaskStatus, { label: string; cls: string }> = {
   FINAL:            { label: 'Final',         cls: 'chip-final' },
   CANCELED:         { label: 'Canceled',      cls: 'chip-canceled' },
   EXPIRED:          { label: 'Deadline missed', cls: 'chip-expired' },
+  ABANDONED:        { label: 'Abandoned',     cls: 'chip-expired' },
 }
 
 const VERDICT_CLS = { MET: 'chip-met', PARTIAL: 'chip-partial', NOT_MET: 'chip-notmet' } as const
@@ -31,6 +32,7 @@ export function StatusChip({ status, verdict }: {
       </span>
     )
   }
-  const m = MAP[status]
+  // Unknown status from a newer contract must degrade, never crash the docket.
+  const m = MAP[status] ?? { label: String(status), cls: 'chip-soft' }
   return <span className={`status-chip t-label ${m.cls}`}>{m.label}</span>
 }

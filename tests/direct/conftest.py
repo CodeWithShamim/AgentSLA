@@ -201,7 +201,9 @@ GEN = 10 ** 18
 BUYER = Address('0x' + 'a1' * 20)
 WORKER = Address('0x' + 'b2' * 20)
 OTHER = Address('0x' + 'c3' * 20)
-TREASURY_HEX = '0x7ea5000000000000000000000000000000000000'
+DEPLOYER = Address('0x' + 'd4' * 20)
+# Slash revenue accrues to the deployer (the contract's treasury).
+TREASURY_HEX = DEPLOYER.as_hex
 
 T0 = 1_800_000_000_000  # fixed epoch ms base for tests
 
@@ -223,8 +225,9 @@ class Env:
         _NATIVE['contract'] = 0
         _TRANSFERS.clear()
         self.set_time(T0)
-        self.set_sender(BUYER)
+        self.set_sender(DEPLOYER)   # deploy sender becomes the treasury
         c.__init__(appeal_window_ms=120_000, min_escrow=1 * GEN)
+        self.set_sender(BUYER)
         self.contract = c
 
     # --- context controls ---

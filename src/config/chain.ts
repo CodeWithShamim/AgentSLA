@@ -42,6 +42,9 @@ export const PARAMS = {
   slashBuyerPct: 50,                    // NOT_MET slash split (FR-3.3)
 } as const
 
-export const TREASURY: Address = '0x7EA5000000000000000000000000000000000000'
+/** Slash revenue accrues to the deployer (recorded at deploy time). */
+export const TREASURY: Address =
+  ((deployment as Record<string, unknown>).treasury as Address | undefined)
+  ?? '0x7EA5000000000000000000000000000000000000'
 
 export const PRIVY_APP_ID: string | undefined = import.meta.env.VITE_PRIVY_APP_ID

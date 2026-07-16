@@ -93,6 +93,7 @@ fs.writeFileSync(outPath, JSON.stringify({
   deployedAt: new Date().toISOString(),
   appealWindowMs: WINDOW_MS,
   minEscrow: MIN_ESCROW.toString(),
+  treasury: account.address,          // slash revenue accrues to the deployer
 }, null, 2) + '\n')
 console.log('wrote', path.relative(root, outPath))
 
