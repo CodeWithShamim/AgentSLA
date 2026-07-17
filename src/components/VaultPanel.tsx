@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { TREASURY } from '../config/chain'
 import { agentName } from '../lib/agents'
 import { fmtGEN, shortAddr } from '../lib/format'
-import { useActingAddress, useClaim, useVault, useWalletGate } from '../lib/reads'
+import { useActingAddress, useClaim, useTx, useVault, useWalletGate } from '../lib/reads'
 import { ConnectWalletButton } from '../lib/wallet'
 import { writes } from '../lib/writes'
 
@@ -15,22 +15,37 @@ import { writes } from '../lib/writes'
 
 function ClaimRow(props: { side?: 'buyer' | 'worker'; address: string; label: string }) {
   const claim = useClaim(props.address)
-  const [state, setState] = useState<'idle' | 'sending' | 'error'>('idle')
+  const [state, setState] = useState<'idle' | 'signing' | 'error'>('idle')
+  const [txHash, setTxHash] = useState<string | null>(null)
   const gate = useWalletGate()
   // Buyer claims are paid to the connected wallet — withdrawing requires
   // its signature; a session key never signs for the buyer side.
   const needWallet = props.side === 'buyer' && gate.required && !gate.connected
 
+  // Signing covers the wallet round-trip; the tx step covers the on-chain
+  // payout window. Hold the button locked across both so a claim can't be
+  // withdrawn twice before the balance refreshes to zero.
+  const tx = useTx(txHash)
+  const pending = !!tx && (tx.step === 'submitted' || tx.step === 'pending')
+  const locked = state === 'signing' || pending || claim <= 0n
+
   const onWithdraw = async () => {
     if (!props.side) return
-    setState('sending')
+    setState('signing')
     try {
-      await writes.withdraw(props.side, props.address as `0x${string}`)
+      const hash = await writes.withdraw(props.side, props.address as `0x${string}`)
+      setTxHash(hash)
       setState('idle')
     } catch {
       setState('error')
     }
   }
+
+  const label =
+    state === 'signing' ? 'Signing…'
+    : pending ? 'Withdrawing…'
+    : state === 'error' ? 'Retry withdraw'
+    : 'Withdraw'
 
   return (
     <div className="tc-top" style={{ alignItems: 'center', padding: 'var(--s-3) 0' }}>
@@ -47,10 +62,10 @@ function ClaimRow(props: { side?: 'buyer' | 'worker'; address: string; label: st
         <button
           className="btn btn-secondary"
           onClick={() => void onWithdraw()}
-          disabled={claim <= 0n || state === 'sending'}
+          disabled={locked}
           aria-label={`withdraw claim for ${props.label}`}
         >
-          {state === 'sending' ? 'Withdrawing…' : state === 'error' ? 'Retry withdraw' : 'Withdraw'}
+          {label}
         </button>
       ))}
     </div>

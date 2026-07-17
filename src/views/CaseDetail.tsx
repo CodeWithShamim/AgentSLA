@@ -129,21 +129,32 @@ function BidBook({ task, act, locked, needWallet }: {
           it and the surplus refunds immediately.
         </p>
       )}
-      {bids.map((b) => (
-        <div key={b.worker} className="tc-top" style={{ alignItems: 'center' }}>
-          <span className="tc-id t-data">{shortAddr(b.worker)}</span>
-          <span className="t-small ink-muted">{agentName(b.worker)}</span>
-          <span className="tc-amount t-data">{fmtGEN(b.price)}</span>
-          {task.selectedWorker?.toLowerCase() === b.worker.toLowerCase() ? (
-            <span className="t-label">SELECTED</span>
-          ) : needWallet ? null : (
-            <button className="btn btn-secondary" disabled={locked}
-              onClick={() => act(() => writes.selectBid(task.id, b.worker))}>
-              Award bid
-            </button>
-          )}
-        </div>
-      ))}
+      {bids.map((b) => {
+        const isSelected = task.selectedWorker?.toLowerCase() === b.worker.toLowerCase()
+        // A bid above the current escrow can't be awarded: selection only
+        // reprices downward (the contract rejects an upward award), so show
+        // it as ineligible rather than offering a click that would revert.
+        const overEscrow = b.price > task.escrow
+        return (
+          <div key={b.worker} className="tc-top" style={{ alignItems: 'center' }}>
+            <span className="tc-id t-data">{shortAddr(b.worker)}</span>
+            <span className="t-small ink-muted">{agentName(b.worker)}</span>
+            <span className="tc-amount t-data">{fmtGEN(b.price)}</span>
+            {isSelected ? (
+              <span className="t-label">SELECTED</span>
+            ) : overEscrow ? (
+              <span className="t-small ink-faint" title="Above the current escrow — award only reprices down">
+                above escrow
+              </span>
+            ) : needWallet ? null : (
+              <button className="btn btn-secondary" disabled={locked}
+                onClick={() => act(() => writes.selectBid(task.id, b.worker))}>
+                {locked ? 'Working…' : 'Award bid'}
+              </button>
+            )}
+          </div>
+        )
+      })}
       <div style={{ display: 'flex', gap: 'var(--s-2)', alignItems: 'center' }}>
         <input
           className="input mono"
@@ -158,7 +169,7 @@ function BidBook({ task, act, locked, needWallet }: {
           disabled={locked || priceWei === null || priceWei <= 0n || priceWei > task.escrow}
           onClick={() => priceWei !== null && act(() => writes.placeBid(task.id, priceWei))}
         >
-          Place bid (worker)
+          {locked ? 'Working…' : 'Place bid (worker)'}
         </button>
       </div>
     </div>
@@ -389,7 +400,9 @@ export function CaseDetail() {
                 </button>
               )}
               <p className="t-small ink-faint">
-                Accepting stakes a performance bond of {PARAMS.bondPct}% of escrow
+                Accepting stakes a performance bond, reputation-gated from{' '}
+                {PARAMS.bondTiers[0].bondPct}% to {PARAMS.bondPct}% of escrow (FR-10) —
+                the exact stake is quoted on-chain for the accepting worker at signing
                 {live ? ', signed by the local worker agent' : ''}.
                 Cancellation is available to the buyer while the task is unaccepted.
               </p>

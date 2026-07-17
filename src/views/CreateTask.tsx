@@ -66,10 +66,87 @@ function CriterionField({ index, value, canRemove, animateIn, onChange, onRemove
   )
 }
 
+interface MilestoneDraft {
+  id: number
+  title: string
+  amountStr: string
+  criteriaText: string   // one criterion per line
+}
+
+/** One milestone stage of a group (FR-9): its own criteria and escrow
+ *  slice — each becomes a full case with its own bond and adjudication. */
+function MilestoneField({ index, value, canRemove, animateIn, onChange, onRemove }: {
+  index: number
+  value: MilestoneDraft
+  canRemove: boolean
+  animateIn: boolean
+  onChange: (v: MilestoneDraft) => void
+  onRemove: () => void
+}) {
+  const rowRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (animateIn && rowRef.current) revealBlock(rowRef.current)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const remove = () => {
+    if (rowRef.current) collapseBlock(rowRef.current, onRemove)
+    else onRemove()
+  }
+
+  return (
+    <div ref={rowRef} className="filing" style={{ padding: 'var(--s-4)', overflow: 'hidden', display: 'grid', gap: 'var(--s-3)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '32px 1fr minmax(90px, 140px) auto', gap: 'var(--s-3)', alignItems: 'center' }}>
+        <span className="t-data ink-faint crit-index">{String(index + 1).padStart(2, '0')}</span>
+        <input
+          className="input"
+          aria-label={`Milestone ${index + 1} title`}
+          value={value.title}
+          onChange={(e) => onChange({ ...value, title: e.target.value })}
+          placeholder={index === 0 ? 'Draft outline' : index === 1 ? 'Full manuscript' : `Stage ${index + 1}`}
+        />
+        <input
+          className="input mono"
+          inputMode="decimal"
+          aria-label={`Milestone ${index + 1} escrow (GEN)`}
+          value={value.amountStr}
+          onChange={(e) => onChange({ ...value, amountStr: e.target.value })}
+          placeholder="GEN"
+        />
+        <button
+          className="btn btn-secondary"
+          style={{ padding: '4px 10px' }}
+          onClick={remove}
+          disabled={!canRemove}
+          aria-label={`Remove milestone ${index + 1}`}
+        >
+          −
+        </button>
+      </div>
+      <textarea
+        className="textarea"
+        rows={2}
+        aria-label={`Milestone ${index + 1} criteria, one per line`}
+        value={value.criteriaText}
+        onChange={(e) => onChange({ ...value, criteriaText: e.target.value })}
+        placeholder={'Criteria for this stage, one per line…'}
+      />
+    </div>
+  )
+}
+
 /** Create-task flow (FR-1). The button states the exact consequence (§8). */
 export function CreateTask() {
   const nav = useNavigate()
   const root = useDocketOpen<HTMLDivElement>()
+
+  const [mode, setMode] = useState<'single' | 'group'>('single')
+  const [milestones, setMilestones] = useState<MilestoneDraft[]>([
+    { id: 0, title: 'Draft outline', amountStr: '4', criteriaText: 'Covers every section of the brief\nDelivered as a structured outline' },
+    { id: 1, title: 'Full manuscript', amountStr: '6', criteriaText: 'Follows the approved outline\nAt least 500 words' },
+  ])
+  const nextMilestoneId = useRef(2)
 
   const [title, setTitle] = useState('Product description — HALO-9 field sensor')
   const [sla, setSla] = useState('Write a product description for the HALO-9 field sensor suitable for the company website. It must be accurate, persuasive, and meet every criterion below.')
@@ -95,8 +172,22 @@ export function CreateTask() {
   useEffect(() => { didMount.current = true }, [])
 
   const escrow = parseGEN(escrowStr)
-  const bond = escrow !== null ? pct(escrow, PARAMS.bondPct) : null
   const filled = criteria.map((c) => c.text.trim()).filter(Boolean)
+
+  // Group mode: the escrow is the sum of the milestone slices — the
+  // contract requires the attached value to equal it exactly.
+  const parsedMilestones = milestones.map((m) => ({
+    title: m.title.trim(),
+    amount: parseGEN(m.amountStr),
+    criteria: m.criteriaText.split('\n').map((s) => s.trim()).filter(Boolean),
+  }))
+  const groupTotal = parsedMilestones.every((m) => m.amount !== null)
+    ? parsedMilestones.reduce((s, m) => s + (m.amount ?? 0n), 0n)
+    : null
+  const effectiveEscrow = mode === 'group' ? groupTotal : escrow
+  // Display figure only — a worker's exact bond is reputation-gated
+  // (10-20%) and quoted from chain at acceptance; show the base tier.
+  const bond = effectiveEscrow !== null ? pct(effectiveEscrow, PARAMS.bondPct) : null
 
   // Bond auto-derives from escrow with a one-beat delay so cause→effect
   // reads; the figure counts, the layout never moves (fixed mono width).
@@ -132,22 +223,43 @@ export function CreateTask() {
     setErr(null)
     if (!title.trim()) return setErr('A deliverable title is required.')
     if (!sla.trim()) return setErr('SLA text is required — it is the contract the court enforces.')
-    if (filled.length < 1) return setErr('At least one criterion is required (FR-1.2).')
-    if (filled.length > 10) return setErr('At most 10 criteria (FR-1.2).')
-    if (escrow === null) return setErr('Escrow must be a valid GEN amount.')
-    if (escrow < PARAMS.minEscrow) return setErr(`Escrow below the minimum of ${fmtGEN(PARAMS.minEscrow)}.`)
+
+    if (mode === 'group') {
+      for (let i = 0; i < parsedMilestones.length; i++) {
+        const m = parsedMilestones[i]
+        if (!m.title) return setErr(`Milestone ${i + 1} needs a title.`)
+        if (m.criteria.length < 1) return setErr(`Milestone ${i + 1} needs at least one criterion (one per line).`)
+        if (m.criteria.length > 10) return setErr(`Milestone ${i + 1}: at most 10 criteria.`)
+        if (m.amount === null) return setErr(`Milestone ${i + 1}: escrow must be a valid GEN amount.`)
+        if (m.amount < PARAMS.minEscrow) return setErr(`Milestone ${i + 1}: escrow below the minimum of ${fmtGEN(PARAMS.minEscrow)}.`)
+      }
+    } else {
+      if (filled.length < 1) return setErr('At least one criterion is required (FR-1.2).')
+      if (filled.length > 10) return setErr('At most 10 criteria (FR-1.2).')
+      if (escrow === null) return setErr('Escrow must be a valid GEN amount.')
+      if (escrow < PARAMS.minEscrow) return setErr(`Escrow below the minimum of ${fmtGEN(PARAMS.minEscrow)}.`)
+    }
 
     setBusy(true)
     try {
-      const { hash } = await writes.createTask({
-        title: title.trim(),
-        slaText: sla.trim(),
-        criteria: filled,
-        deadline: Date.now() + days * 86_400_000,
-        escrow,
-      })
+      const deadline = Date.now() + days * 86_400_000
+      let hash: string
+      if (mode === 'group') {
+        const ms = parsedMilestones.map((m) => ({
+          title: m.title, criteria: m.criteria, amount: m.amount ?? 0n,
+        }))
+        ;({ hash } = await writes.createTaskGroup({
+          title: title.trim(), slaText: sla.trim(), deadline, milestones: ms,
+        }))
+        // Group children land titled "<milestone> — <group title>".
+        filedTitle.current = `${ms[0].title} — ${title.trim()}`
+      } else {
+        ;({ hash } = await writes.createTask({
+          title: title.trim(), slaText: sla.trim(), criteria: filled, deadline, escrow: escrow!,
+        }))
+        filedTitle.current = title.trim()
+      }
       filedAt.current = Date.now()
-      filedTitle.current = title.trim()
       setTxHash(hash)
       setFiled(true)
     } catch (e) {
@@ -166,6 +278,31 @@ export function CreateTask() {
           independently by validator consensus. Write criteria as discrete,
           individually judgeable statements.
         </p>
+        <div role="tablist" aria-label="Case structure" style={{ display: 'flex', gap: 'var(--s-2)', marginTop: 'var(--s-4)' }}>
+          <button
+            role="tab"
+            aria-selected={mode === 'single'}
+            className={mode === 'single' ? 'btn btn-primary' : 'btn btn-secondary'}
+            onClick={() => setMode('single')}
+          >
+            Single case
+          </button>
+          <button
+            role="tab"
+            aria-selected={mode === 'group'}
+            className={mode === 'group' ? 'btn btn-primary' : 'btn btn-secondary'}
+            onClick={() => setMode('group')}
+          >
+            Milestone group (2–{PARAMS.maxMilestones} stages)
+          </button>
+        </div>
+        {mode === 'group' && (
+          <p className="t-small ink-faint" style={{ marginTop: 'var(--s-2)' }}>
+            One payable filing opens each stage as its own case — own criteria,
+            escrow slice, bond, adjudication, and appeal window (FR-9). Every
+            stage is fully funded at commitment.
+          </p>
+        )}
       </div>
 
       <DocketLine label="Deliverable" />
@@ -182,41 +319,87 @@ export function CreateTask() {
         </div>
       </div>
 
-      <DocketLine label="Criteria" />
-      <div ref={listRef} style={{ display: 'grid', gap: 'var(--s-3)' }}>
-        {criteria.map((c, i) => (
-          <CriterionField
-            key={c.id}
-            index={i}
-            value={c.text}
-            canRemove={criteria.length > 1}
-            animateIn={didMount.current}
-            onChange={(v) => setCriterion(c.id, v)}
-            onRemove={() => setCriteria((cs) => cs.filter((x) => x.id !== c.id))}
-          />
-        ))}
-        <div>
-          <button
-            className="btn btn-secondary"
-            onClick={() => setCriteria((cs) => [...cs, { id: nextId.current++, text: '' }])}
-            disabled={criteria.length >= 10}
-          >
-            + Add criterion ({criteria.length}/10)
-          </button>
-        </div>
-      </div>
+      {mode === 'single' ? (
+        <>
+          <DocketLine label="Criteria" />
+          <div ref={listRef} style={{ display: 'grid', gap: 'var(--s-3)' }}>
+            {criteria.map((c, i) => (
+              <CriterionField
+                key={c.id}
+                index={i}
+                value={c.text}
+                canRemove={criteria.length > 1}
+                animateIn={didMount.current}
+                onChange={(v) => setCriterion(c.id, v)}
+                onRemove={() => setCriteria((cs) => cs.filter((x) => x.id !== c.id))}
+              />
+            ))}
+            <div>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setCriteria((cs) => [...cs, { id: nextId.current++, text: '' }])}
+                disabled={criteria.length >= 10}
+              >
+                + Add criterion ({criteria.length}/10)
+              </button>
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <DocketLine label="Milestones" />
+          <div style={{ display: 'grid', gap: 'var(--s-3)' }}>
+            {milestones.map((m, i) => (
+              <MilestoneField
+                key={m.id}
+                index={i}
+                value={m}
+                canRemove={milestones.length > 2}
+                animateIn={didMount.current}
+                onChange={(v) => setMilestones((ms) => ms.map((x) => (x.id === m.id ? v : x)))}
+                onRemove={() => setMilestones((ms) => ms.filter((x) => x.id !== m.id))}
+              />
+            ))}
+            <div>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setMilestones((ms) => [...ms,
+                  { id: nextMilestoneId.current++, title: '', amountStr: '', criteriaText: '' }])}
+                disabled={milestones.length >= PARAMS.maxMilestones}
+              >
+                + Add milestone ({milestones.length}/{PARAMS.maxMilestones})
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       <DocketLine label="Stakes" />
       <div className="field-pair">
-        <div className="field">
-          <label className="t-label" htmlFor="ct-escrow">Escrow (GEN)</label>
-          <input id="ct-escrow" className="input mono" inputMode="decimal" value={escrowStr}
-            onChange={(e) => setEscrowStr(e.target.value)} />
-          <span className="hint t-small">
-            Minimum {fmtGEN(PARAMS.minEscrow)}. Worker bond will be{' '}
-            <span className="t-data" ref={bondRef} style={{ display: 'inline-block', minWidth: '7ch' }} /> ({PARAMS.bondPct}%).
-          </span>
-        </div>
+        {mode === 'single' ? (
+          <div className="field">
+            <label className="t-label" htmlFor="ct-escrow">Escrow (GEN)</label>
+            <input id="ct-escrow" className="input mono" inputMode="decimal" value={escrowStr}
+              onChange={(e) => setEscrowStr(e.target.value)} />
+            <span className="hint t-small">
+              Minimum {fmtGEN(PARAMS.minEscrow)}. Base worker bond{' '}
+              <span className="t-data" ref={bondRef} style={{ display: 'inline-block', minWidth: '7ch' }} />{' '}
+              — reputation-gated {PARAMS.bondTiers[0].bondPct}–{PARAMS.bondPct}% (FR-10).
+            </span>
+          </div>
+        ) : (
+          <div className="field">
+            <span className="t-label">Total escrow (sum of milestones)</span>
+            <span className="t-data" style={{ fontSize: 'var(--fs-3, 1.25rem)' }}>
+              {groupTotal !== null ? fmtGEN(groupTotal) : '—'}
+            </span>
+            <span className="hint t-small">
+              Each milestone needs at least {fmtGEN(PARAMS.minEscrow)}; the filing
+              attaches the exact total. Bonds are staked per stage, reputation-gated{' '}
+              {PARAMS.bondTiers[0].bondPct}–{PARAMS.bondPct}% (FR-10).
+            </span>
+          </div>
+        )}
         <div className="field">
           <label className="t-label" htmlFor="ct-deadline">Deadline (days from now)</label>
           <input id="ct-deadline" className="input mono" type="number" min={1} max={60} value={days}
@@ -230,7 +413,7 @@ export function CreateTask() {
       <div style={{ marginTop: 'var(--s-5)', display: 'grid', gap: 'var(--s-4)' }}>
         {!filed && (needWallet ? (
           <div style={{ display: 'grid', gap: 'var(--s-2)', justifyItems: 'start' }}>
-            <ConnectWalletButton label={`Connect wallet to escrow ${escrow !== null ? fmtGEN(escrow) : 'GEN'}`} />
+            <ConnectWalletButton label={`Connect wallet to escrow ${effectiveEscrow !== null ? fmtGEN(effectiveEscrow) : 'GEN'}`} />
             <p className="t-small ink-faint">
               Filing moves real GEN from your wallet into contract custody —
               the transaction must be signed by your connected wallet.
@@ -239,7 +422,10 @@ export function CreateTask() {
         ) : (
           <div>
             <button className="btn btn-primary" onClick={() => void submit()} disabled={busy}>
-              {busy ? 'Signing…' : `Escrow ${escrow !== null ? fmtGEN(escrow) : '— GEN'} & open the case`}
+              {busy ? 'Signing…'
+                : mode === 'group'
+                  ? `Escrow ${effectiveEscrow !== null ? fmtGEN(effectiveEscrow) : '— GEN'} & open ${milestones.length} staged cases`
+                  : `Escrow ${effectiveEscrow !== null ? fmtGEN(effectiveEscrow) : '— GEN'} & open the case`}
             </button>
           </div>
         ))}

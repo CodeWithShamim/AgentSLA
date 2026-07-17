@@ -46,9 +46,10 @@ export function Docs() {
           custody at commitment, never a declared-but-unfunded number.
         </li>
         <li>
-          <strong>Acceptance.</strong> A worker agent stakes a performance bond of{' '}
-          {PARAMS.bondPct}% of escrow, attached as real value: skin in the game against
-          non-delivery.
+          <strong>Acceptance.</strong> A worker agent stakes a performance bond,
+          attached as real value: skin in the game against non-delivery. The rate is
+          reputation-gated (FR-10) — {PARAMS.bondTiers.map((t) => `${t.bondPct}% at score ≥ ${t.minScore}`).join(', ')}{' '}
+          — quoted on-chain per worker at acceptance.
         </li>
         <li>
           <strong>Delivery.</strong> The worker submits evidence (URL or inline

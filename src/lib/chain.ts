@@ -20,6 +20,7 @@ import type {
 
 const POLL_MS = 4000
 const TX_POLL_MS = 2500
+const DOCKET_PAGE = 50   // get_tasks_page hard cap (contract-enforced)
 
 type Listener = () => void
 
@@ -246,20 +247,40 @@ class ChainBackend {
 
   // ----- reads -----
 
+  /** Bounded docket read (FR-11): pages through get_tasks_page instead of
+   *  the unbounded get_tasks, so payload size stays flat as the docket
+   *  grows. Page 1 carries the total; the rest fetch in parallel. */
+  private async fetchDocket(): Promise<any[]> {
+    const readPage = (offset: number) =>
+      this.readClient.readContract({
+        address: this.address, functionName: 'get_tasks_page', args: [offset, DOCKET_PAGE],
+      })
+    const first = JSON.parse(String(await readPage(0)))
+    const all: any[] = [...first.tasks]
+    const total = Number(first.total)
+    if (total > DOCKET_PAGE) {
+      const offsets: number[] = []
+      for (let o = DOCKET_PAGE; o < total; o += DOCKET_PAGE) offsets.push(o)
+      const pages = await Promise.all(offsets.map(readPage))
+      for (const p of pages) all.push(...JSON.parse(String(p)).tasks)
+    }
+    return all
+  }
+
   private async poll() {
     try {
       const claimAddrs = [
         ...new Set([this.actingAddress('buyer'), this.actingAddress('worker'), TREASURY]
           .map((a) => a.toLowerCase())),
       ]
-      const [tasksJson, repJson, vaultJson, ...claims] = await Promise.all([
-        this.readClient.readContract({ address: this.address, functionName: 'get_tasks', args: [] }),
+      const [taskRows, repJson, vaultJson, ...claims] = await Promise.all([
+        this.fetchDocket(),
         this.readClient.readContract({ address: this.address, functionName: 'get_reputation', args: [] }),
         this.readClient.readContract({ address: this.address, functionName: 'get_vault', args: [] }),
         ...claimAddrs.map((a) =>
           this.readClient.readContract({ address: this.address, functionName: 'get_balance', args: [a] })),
       ])
-      this.tasks = (JSON.parse(String(tasksJson)) as any[])
+      this.tasks = taskRows
         .map((raw) => mapTask(raw, this.pendingByTask.get(Number(raw.id))))
         .sort((a, b) => b.id - a.id)
       this.repEvents = JSON.parse(String(repJson))
@@ -414,6 +435,26 @@ class ChainBackend {
         input.title, input.slaText, JSON.stringify(input.criteria),
         input.deadline,
       ], `create_task — escrow ${input.escrow}`, undefined, undefined, input.escrow),
+    }
+  }
+
+  async createTaskGroup(input: {
+    title: string; slaText: string; deadline: number
+    milestones: { title: string; criteria: string[]; amount: bigint }[]
+  }): Promise<{ hash: string }> {
+    // One payable call funds every stage: the attached value must equal
+    // the sum of the slices, and the contract enforces the equality.
+    // Amounts ride as strings — wei figures exceed Number.MAX_SAFE_INTEGER
+    // and JSON.stringify would corrupt them; Python's int() parses strings.
+    const total = input.milestones.reduce((s, m) => s + m.amount, 0n)
+    const milestonesJson = JSON.stringify(input.milestones.map((m) => ({
+      title: m.title, criteria: m.criteria, amount: m.amount.toString(),
+    })))
+    return {
+      hash: await this.submitTx('buyer', 'create_task_group', [
+        input.title, input.slaText, milestonesJson, input.deadline,
+      ], `create_task_group — ${input.milestones.length} milestones, escrow ${total}`,
+      undefined, undefined, total),
     }
   }
 

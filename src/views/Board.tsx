@@ -46,11 +46,14 @@ export function Board() {
     playCardsRise(el)
   }, [tasks.length > 0])
 
+  // Exhaustive partition — every task lands in exactly one bucket, so a
+  // status like ABANDONED can never silently drop off the docket.
+  const DECIDED = new Set<Task['status']>([
+    'FINAL', 'RESOLVED_NEUTRAL', 'CANCELED', 'ABANDONED',
+  ])
   const open = tasks.filter((t) => t.status === 'OPEN')
-  const inProgress = tasks.filter((t) =>
-    ['ACCEPTED', 'DELIVERED', 'ADJUDICATING', 'ADJUDICATED', 'APPEALED', 'SOFT_ERROR', 'EXPIRED'].includes(t.status))
-  const decided = tasks.filter((t) =>
-    ['FINAL', 'RESOLVED_NEUTRAL', 'CANCELED'].includes(t.status))
+  const decided = tasks.filter((t) => DECIDED.has(t.status))
+  const inProgress = tasks.filter((t) => t.status !== 'OPEN' && !DECIDED.has(t.status))
 
   const escrowOpen = open.reduce((s, t) => s + t.escrow, 0n)
 

@@ -539,6 +539,48 @@ class SimStore {
     return { hash: tx.hash, taskId: id }
   }
 
+  createTaskGroup(input: {
+    title: string; slaText: string; deadline: number
+    milestones: { title: string; criteria: string[]; amount: bigint }[]
+  }): { hash: string; taskId: number } {
+    // Mirrors the contract's create_task_group: 2-5 stages, each fully
+    // funded at commitment, sharing one SLA/deadline; every stage is an
+    // ordinary task afterwards.
+    const ms = input.milestones
+    if (ms.length < 2 || ms.length > PARAMS.maxMilestones) {
+      throw new Error(`milestones must be 2-${PARAMS.maxMilestones} stages`)
+    }
+    for (const m of ms) {
+      if (!m.title.trim()) throw new Error('each milestone needs a title')
+      if (m.criteria.length < 1 || m.criteria.length > 10) throw new Error('criteria must be 1–10 items')
+      if (m.amount < PARAMS.minEscrow) throw new Error('milestone escrow below minimum')
+    }
+    const groupId = 1 + this.state.tasks.reduce((g, t) => Math.max(g, t.groupId ?? 0), 0)
+    const firstId = this.state.nextId
+    ms.forEach((m, i) => {
+      const id = this.state.nextId++
+      this.state.tasks.push({
+        id,
+        buyer: YOU,
+        title: `${m.title} — ${input.title}`,
+        slaText: input.slaText,
+        criteria: m.criteria,
+        deadline: input.deadline,
+        escrow: m.amount,
+        bond: pct(m.amount, PARAMS.bondPct),
+        createdAt: Date.now(),
+        status: 'OPEN',
+        groupId,
+        groupIndex: i,
+        groupSize: ms.length,
+      })
+    })
+    const total = ms.reduce((s, m) => s + m.amount, 0n)
+    const tx = this.openTx(`create_task_group — ${ms.length} milestones, escrow ${total}`, firstId)
+    this.notify()
+    return { hash: tx.hash, taskId: firstId }
+  }
+
   acceptTask(id: number): string {
     const t = this.mustGet(id, 'OPEN')
     if (t.selectedWorker && t.selectedWorker !== DEFAULT_WORKER) {
@@ -567,6 +609,12 @@ class SimStore {
     const t = this.mustGet(id, 'OPEN')
     const bid = (t.bids ?? []).find((b) => b.worker.toLowerCase() === worker.toLowerCase())
     if (!bid) throw new Error('no bid from that worker')
+    // Selection may be revised while OPEN but only downward: an upward reprice
+    // would re-inflate escrow without re-locking custody after the earlier
+    // surplus already left as a claim. Mirrors the contract guard.
+    if (bid.price > t.escrow) {
+      throw new Error('selection can only reprice down; bid exceeds current escrow')
+    }
     const surplus = t.escrow - bid.price
     if (surplus > 0n) {
       const k = t.buyer.toLowerCase()

@@ -71,6 +71,37 @@ def test_selected_lifecycle_settles_at_bid_price(env):
     env.assert_backed()
 
 
+def test_reselect_downward_ok_upward_rejected(env):
+    """Re-selecting a bid is allowed but only to reprice DOWN. An upward
+    re-select would inflate escrow without re-locking custody while the
+    first surplus already left as a claim — over-extraction + cross-task
+    insolvency. Downward reselection stays exactly backed."""
+    tid = env.create(escrow=10 * GEN)
+    env.bid(tid, 8 * GEN, sender=OTHER)            # high bid
+    env.bid(tid, 5 * GEN, sender=WORKER)           # low bid
+
+    # Pick the low bid: escrow 10 -> 5, surplus 5 to buyer, exactly backed.
+    env.select(tid, WORKER)
+    assert int(env.task(tid)['escrow']) == 5 * GEN
+    assert env.balance(BUYER) == 5 * GEN
+    env.assert_backed()
+
+    # Re-selecting the higher bid must be rejected — it would set escrow to
+    # 8 against only 5 locked, letting the buyer keep the inflated surplus.
+    env.set_sender(BUYER)
+    with pytest.raises(Exception, match='reprice down'):
+        env.contract.select_bid(tid, OTHER.as_hex)
+    assert int(env.task(tid)['escrow']) == 5 * GEN  # unchanged
+    env.assert_backed()
+
+    # A further downward reprice is still fine.
+    env.bid(tid, 3 * GEN, sender=WORKER)
+    env.select(tid, WORKER)
+    assert int(env.task(tid)['escrow']) == 3 * GEN
+    assert env.balance(BUYER) == 7 * GEN            # 5 + 2 more surplus
+    env.assert_backed()
+
+
 def test_select_requires_buyer_and_existing_bid(env):
     tid = env.create(escrow=10 * GEN)
     env.bid(tid, 5 * GEN)

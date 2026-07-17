@@ -36,10 +36,19 @@ export const ON_CHAIN = Boolean(CONTRACT_ADDRESS)
 /** Protocol parameters (mirrors the deployed contract's get_params). */
 export const PARAMS = {
   minEscrow: BigInt(deployment.minEscrow ?? '1000000000000000000'),
-  bondPct: 20,                          // worker bond = 20% of escrow (FR-1.3)
+  bondPct: 20,                          // base worker bond, score < 5 (FR-1.3/FR-10)
   appealBondPct: 10,                    // appeal bond = 10% of escrow (FR-5.2)
   appealWindowMs: deployment.appealWindowMs ?? 120_000,
   slashBuyerPct: 50,                    // NOT_MET slash split (FR-3.3)
+  /** Reputation-gated bond tiers (FR-10), highest tier first — mirrors
+   *  the contract's BOND_TIERS. A worker's exact quote always comes from
+   *  get_required_bond on-chain; these drive display copy only. */
+  bondTiers: [
+    { minScore: 10, bondPct: 10 },
+    { minScore: 5, bondPct: 15 },
+    { minScore: 0, bondPct: 20 },
+  ],
+  maxMilestones: 5,                     // milestone group size cap (FR-9)
 } as const
 
 /** Slash revenue accrues to the deployer (recorded at deploy time). */

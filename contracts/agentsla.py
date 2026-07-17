@@ -552,6 +552,15 @@ class AgentSLA(gl.Contract):
         if bid is None:
             raise Exception('EXPECTED: no bid from that worker')
         price = int(bid['price'])
+        # Selection may be revised (re-called while OPEN) but only downward:
+        # each call releases (current escrow - price) surplus and reprices to
+        # `price`. Re-selecting a bid ABOVE the current escrow would set escrow
+        # up without re-locking custody — and the earlier surplus already left
+        # as a withdrawable claim — letting the buyer over-extract and draining
+        # locked backing from other tasks at settlement. Only equal-or-cheaper
+        # reprices keep the per-task backing exact; switch up via cancel+repost.
+        if price > int(t.escrow):
+            raise Exception('EXPECTED: selection can only reprice down; bid exceeds current escrow')
         surplus = int(t.escrow) - price
         if surplus > 0:
             self._credit(t.buyer, surplus)     # locked → withdrawable, backed

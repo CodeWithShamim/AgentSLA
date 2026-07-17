@@ -20,6 +20,16 @@ export const writes = {
     return store.createTask(input)
   },
 
+  /** Milestone escrow (FR-9): one payable call opens 2-5 staged cases;
+   *  the attached value must equal the sum of the milestone amounts. */
+  createTaskGroup: async (input: {
+    title: string; slaText: string; deadline: number
+    milestones: { title: string; criteria: string[]; amount: bigint }[]
+  }): Promise<{ hash: string; taskId?: number }> => {
+    if (onChain()) return chainBackend!.createTaskGroup(input)
+    return store.createTaskGroup(input)
+  },
+
   acceptTask: async (id: number): Promise<string> =>
     onChain() ? chainBackend!.acceptTask(id) : store.acceptTask(id),
 
